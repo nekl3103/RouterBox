@@ -17,7 +17,7 @@ import (
 
 type Object = map[string]any
 
-const Version = "0.3.0"
+const Version = "0.3.1"
 const CoreVersion = "1.14.2-lx.12-router.1"
 const MaxDownload = 8 << 20
 

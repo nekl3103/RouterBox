@@ -16,7 +16,7 @@ RouterBox — клиент для OpenWrt с интерфейсом LuCI и яд
 | Архитектура APK | `mipsel_24kc` |
 | Проверенная прошивка | OpenWrt 25.12.5, LuCI |
 | Пакетный менеджер | APK |
-| Приложение | 0.3.0, пакет `0.3.0-r1` |
+| Приложение | 0.3.1, пакет `0.3.1-r1` |
 | Ядро | `1.14.2-lx.12-router.1`, пакет `1.14.2-r13` |
 
 Готовые пакеты предназначены для этой платформы. Старые прошивки с OPKG, другие архитектуры и другие модели этим комплектом не проверены. Должны быть доступны репозитории пакетов вашей установленной прошивки: модули ядра устанавливаются именно из них.
@@ -41,11 +41,11 @@ RouterBox — клиент для OpenWrt с интерфейсом LuCI и яд
 
 Полная инструкция, включая настройку подписки и правил, находится в [docs/INSTALL.md](docs/INSTALL.md).
 
-1. Скачайте `routerbox-mt7621-0.3.0.tar.gz` из [Releases](https://github.com/nekl3103/RouterBox/releases/latest).
+1. Скачайте `routerbox-mt7621-0.3.1.tar.gz` из [Releases](https://github.com/nekl3103/RouterBox/releases/latest).
 2. Передайте архив с компьютера на роутер:
 
    ```sh
-   scp -O routerbox-mt7621-0.3.0.tar.gz root@192.168.1.1:/tmp/
+   scp -O routerbox-mt7621-0.3.1.tar.gz root@192.168.1.1:/tmp/
    ssh root@192.168.1.1
    ```
 
@@ -53,7 +53,7 @@ RouterBox — клиент для OpenWrt с интерфейсом LuCI и яд
 
    ```sh
    cd /tmp
-   tar -xzf routerbox-mt7621-0.3.0.tar.gz
+   tar -xzf routerbox-mt7621-0.3.1.tar.gz
    cd routerbox-mt7621
    ./install.sh --check
    ```
@@ -176,7 +176,7 @@ RouterBox — клиент для OpenWrt с интерфейсом LuCI и яд
 
 ```sh
 rm -rf /tmp/routerbox-mt7621
-rm -f /tmp/routerbox-mt7621-0.3.0.tar.gz
+rm -f /tmp/routerbox-mt7621-0.3.1.tar.gz
 ```
 
 Не удаляйте `/tmp/routerbox` при работающей службе.
@@ -226,8 +226,8 @@ cd RouterBox
 
 | Файл | Назначение |
 | --- | --- |
-| `routerbox-mt7621-0.3.0.tar.gz` | Установочный комплект с инструкцией, пакетами и ключом |
-| `luci-app-routerbox-0.3.0-r1.apk` | Контроллер и LuCI |
+| `routerbox-mt7621-0.3.1.tar.gz` | Установочный комплект с инструкцией, пакетами и ключом |
+| `luci-app-routerbox-0.3.1-r1.apk` | Контроллер и LuCI |
 | `routerbox-core-1.14.2-r13.apk` | Сжатое ядро |
 | `sing-box-1.14.2-lx.12-mt7621.gz` | Архив для загрузки ядра в RAM |
 | `manifest.json` | Версия, размеры, исходный commit и SHA256 ядра |

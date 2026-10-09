@@ -4,7 +4,7 @@
 
 ## 1. Скачать сборку
 
-Откройте [Releases](https://github.com/nekl3103/RouterBox/releases/latest) и скачайте **routerbox-mt7621-0.3.0.tar.gz**. Для обычной установки нужен этот комплект целиком.
+Откройте [Releases](https://github.com/nekl3103/RouterBox/releases/latest) и скачайте **routerbox-mt7621-0.3.1.tar.gz**. Для обычной установки нужен этот комплект целиком.
 
 Если используете тестовую сборку из [Actions](https://github.com/nekl3103/RouterBox/actions/workflows/build.yml), откройте успешный запуск, скачайте artifact `RouterBox-mt7621-…` и распакуйте ZIP на компьютере. Внутри будет установочный tar.gz.
 
@@ -13,7 +13,7 @@
 На компьютере выполните:
 
 ```sh
-scp -O routerbox-mt7621-0.3.0.tar.gz root@192.168.1.1:/tmp/
+scp -O routerbox-mt7621-0.3.1.tar.gz root@192.168.1.1:/tmp/
 ssh root@192.168.1.1
 ```
 
@@ -33,7 +33,7 @@ df -h /overlay /tmp
 
 ```sh
 cd /tmp
-tar -xzf routerbox-mt7621-0.3.0.tar.gz
+tar -xzf routerbox-mt7621-0.3.1.tar.gz
 cd routerbox-mt7621
 ```
 
@@ -173,7 +173,7 @@ cd /tmp/routerbox-mt7621
 
 ```sh
 rm -rf /tmp/routerbox-mt7621
-rm -f /tmp/routerbox-mt7621-0.3.0.tar.gz
+rm -f /tmp/routerbox-mt7621-0.3.1.tar.gz
 ```
 
 Рабочий каталог `/tmp/routerbox` при запущенной службе не удаляйте.

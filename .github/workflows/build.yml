@@ -41,6 +41,7 @@ jobs:
       - name: Test controller and LuCI
         run: |
           mkdir -p build
+          printf 'module routerbox-build-cache\n\ngo 1.25.0\n' > build/go.mod
           if go test -race ./... > build/controller-test.log 2>&1; then
             cat build/controller-test.log
           else
@@ -108,7 +109,7 @@ jobs:
           cat > release-notes.md <<'EOF'
           RouterBox для OpenWrt APK, ramips/mt7621 (mipsel_24kc).
 
-          Для установки скачайте routerbox-mt7621-0.3.0.tar.gz. Инструкция находится в README.md и docs/INSTALL.md репозитория; README.ru.md также включён в архив.
+          Для установки скачайте routerbox-mt7621-0.3.1.tar.gz. Инструкция находится в README.md и docs/INSTALL.md репозитория; README.ru.md также включён в архив.
 
           По умолчанию VPN отключён. Для установки рядом с работающим VPN используйте install.sh --disabled.
           EOF
