@@ -4,7 +4,7 @@ root=pathlib.Path(__file__).resolve().parent.parent
 dist=root/'dist'
 files=['luci-app-routerbox-0.3.1-r1.apk','routerbox-core-1.14.2-r13.apk','keys/routerbox.pub','manifest.json','install.sh','README.ru.md','INSTALL.ru.md']
 shutil.copyfile(root/'install.sh',dist/'install.sh')
-(dist/'README.ru.md').write_text((root/'README.md').read_text().replace('](docs/INSTALL.md', '](https://github.com/nekl3103/RouterBox/blob/main/docs/INSTALL.md'))
+(dist/'README.ru.md').write_text((root/'README.md').read_text().replace('](docs/screenshots/', '](https://raw.githubusercontent.com/nekl3103/RouterBox/main/docs/screenshots/').replace('](docs/INSTALL.md', '](https://github.com/nekl3103/RouterBox/blob/main/docs/INSTALL.md'))
 (dist/'INSTALL.ru.md').write_text((root/'docs/INSTALL.md').read_text().replace('](../README.md)', '](README.ru.md)'))
 checks=''.join(hashlib.sha256((dist/name).read_bytes()).hexdigest()+'  '+name+'\n' for name in files)
 (dist/'SHA256SUMS').write_text(checks)
