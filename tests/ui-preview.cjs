@@ -1,0 +1,16 @@
+const fs=require('node:fs');
+const source=fs.readFileSync('files/www/luci-static/resources/view/routerbox/main.js','utf8');
+const fixture=JSON.parse(fs.readFileSync('build/ui-fixture.json','utf8'));
+fixture.settings.groups=[];fixture.settings.subscriptions.push({id:'second',name:'Резервная подписка',url:'https://example.net/subscription',enabled:false,interval:12,updated:Math.floor(Date.now()/1000)-900});
+fixture.settings.subscriptions[0].updated=Math.floor(Date.now()/1000)-3600;
+fixture.settings.subscriptions[0].name='Altflow';fixture.settings.rules[0].categories=['allow-youtube','instagram','allow-telegram'];
+fixture.nodes.push({id:'c',subscription:'second',name:'Germany · Frankfurt',protocol:'vless',server:'de.example.net',port:443});
+fixture.nodes[0].name='Netherlands · Amsterdam';fixture.nodes[0].health={checked:Math.floor(Date.now()/1000),up:true,delay:62,success:.98};fixture.version='0.2.0';fixture.core_version='1.14.2-lx.12';fixture.running=false;
+const html=`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RouterBox UI preview</title><style>body{font:14px system-ui,sans-serif;margin:0;padding:32px;background:#f4f6fa;color:#202a3c}button,input,select,textarea{font:inherit}button{cursor:pointer;padding:9px 13px;border:1px solid #dce1e8;border-radius:7px;background:white;color:inherit}.cbi-button-action{background:#376cf4;color:white;border-color:#376cf4}input:not([type=checkbox]),select,textarea{padding:9px;border:1px solid #dce1e8;border-radius:7px;background:white;color:inherit}h3{font-size:17px}h2{font-size:25px}small{font-size:12px}label input[type=checkbox]{accent-color:#376cf4}details>summary{cursor:pointer;margin:10px 0}#modal-backdrop{position:fixed;inset:0;background:#16253d75;z-index:10;display:flex;align-items:center;justify-content:center;padding:20px}#modal{background:white;border-radius:14px;padding:24px;max-height:88vh;overflow:auto;width:850px;max-width:100%}@media(max-width:760px){body{padding:14px}#modal-backdrop{padding:10px}#modal{padding:16px}} </style></head><body><main id="app"></main><script>
+const fixture=${JSON.stringify(fixture)};
+function E(tag,attrs,children){const el=document.createElement(tag);for(const [k,v]of Object.entries(attrs||{})){if(v==null)continue;if(typeof v==='function')el.addEventListener(k,v);else if(k==='value')el.value=v;else if(k==='checked'||k==='selected')el[k]=!!v;else el.setAttribute(k,v);}function append(c){if(Array.isArray(c))c.forEach(append);else if(c!=null)el.append(c instanceof Node?c:document.createTextNode(String(c)));}append(children);return el;}
+const view={extend:o=>o},rpc={declare:spec=>async()=>spec.method==='state'?fixture:{}},poll={add:()=>{}},ui={addNotification:(a,b)=>console.log(b.textContent),hideModal:()=>document.getElementById('modal-backdrop')?.remove(),showModal:(title,children)=>{ui.hideModal();document.body.append(E('div',{id:'modal-backdrop'},E('section',{id:'modal'},[E('h2',{},title),children])));}};
+window.routerboxPage=new Function('view','rpc','poll','ui','E',${JSON.stringify(source)})(view,rpc,poll,ui,E);document.getElementById('app').append(routerboxPage.render(fixture));
+</script></body></html>`;
+fs.writeFileSync('output/playwright/preview.html',html);
+console.log('Preview ready');

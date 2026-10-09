@@ -1,0 +1,7 @@
+{
+ "admin/services/routerbox": {
+  "title": "RouterBox", "order": 60,
+  "action": { "type": "view", "path": "routerbox/main" },
+  "depends": { "acl": [ "luci-app-routerbox" ] }
+ }
+}

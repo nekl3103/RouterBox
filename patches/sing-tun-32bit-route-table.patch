@@ -1,0 +1,13 @@
+--- a/redirect_route_linux.go
++++ b/redirect_route_linux.go
+@@ -19,8 +19,8 @@
+ 
+ func (r *autoRedirect) setupRedirectRoutes() error {
+ 	for {
+-		r.redirectRouteTableIndex = int(rand.Uint32())
+-		if r.redirectRouteTableIndex == r.tunOptions.IPRoute2TableIndex {
++		r.redirectRouteTableIndex = int(rand.Int31())
++		if r.redirectRouteTableIndex <= 255 || r.redirectRouteTableIndex == r.tunOptions.IPRoute2TableIndex {
+ 			continue
+ 		}
+ 		routeList, fErr := netlink.RouteListFiltered(netlink.FAMILY_ALL,

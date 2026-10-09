@@ -1,0 +1,7 @@
+{
+ "luci-app-routerbox": {
+  "description": "RouterBox subscriptions and routing",
+  "read": { "ubus": { "routerbox": [ "state" ] } },
+  "write": { "ubus": { "routerbox": [ "save", "subscription", "refresh", "catalogue", "rules", "check", "start", "stop" ] } }
+ }
+}

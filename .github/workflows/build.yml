@@ -1,0 +1,108 @@
+name: Build RouterBox
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routerbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GOTOOLCHAIN: go1.26.8
+      GOMODCACHE: ${{ github.workspace }}/build/gomod
+      GOCACHE: ${{ github.workspace }}/build/gocache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/gomod
+            build/gocache
+          key: go-${{ runner.os }}-${{ runner.arch }}-1.26.8-${{ hashFiles('go.sum', 'scripts/build.sh', 'patches/**') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-1.26.8-
+      - name: Test controller and LuCI
+        run: |
+          go test -race ./...
+          go vet ./...
+          node --check files/www/luci-static/resources/view/routerbox/main.js
+          node tests/ui-smoke.cjs
+          sh -n install.sh scripts/*.sh
+      - name: Configure APK signing
+        if: github.event_name != 'pull_request'
+        env:
+          SIGNING_KEY_PEM: ${{ secrets.ROUTERBOX_APK_SIGNING_KEY }}
+        run: |
+          if [ -n "$SIGNING_KEY_PEM" ]; then
+            mkdir -p build
+            umask 077
+            printf '%s\n' "$SIGNING_KEY_PEM" > build/routerbox-private.pem
+            openssl rsa -in build/routerbox-private.pem -check -noout
+          fi
+      - name: Build signed MT7621 packages
+        run: ./scripts/build.sh
+      - name: Test generated configuration and failover with Linux core
+        env:
+          ROUTERBOX_TEST_SERVICES: '1'
+        run: ./scripts/test-linux.sh
+      - name: Verify bundle checksums
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RouterBox-mt7621-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: |
+            dist/routerbox-mt7621-*.tar.gz
+            dist/luci-app-routerbox-*.apk
+            dist/routerbox-core-*.apk
+            dist/sing-box-*-mt7621.gz
+            dist/manifest.json
+            dist/SHA256SUMS
+            dist/keys/routerbox.pub
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: RouterBox-mt7621-${{ github.sha }}
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          RouterBox для OpenWrt APK, ramips/mt7621 (mipsel_24kc).
+
+          Для установки скачайте routerbox-mt7621-0.2.0.tar.gz. Инструкция находится в README.md и docs/INSTALL.md репозитория; README.ru.md также включён в архив.
+
+          По умолчанию VPN отключён. Для установки рядом с работающим VPN используйте install.sh --disabled.
+          EOF
+          gh release create "$RELEASE_TAG" --verify-tag --title "RouterBox $RELEASE_TAG" --notes-file release-notes.md dist/*.tar.gz dist/*.apk dist/*-mt7621.gz dist/manifest.json dist/SHA256SUMS dist/keys/routerbox.pub

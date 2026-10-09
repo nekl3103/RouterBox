@@ -1,0 +1,45 @@
+#!/bin/sh
+# Dedicated table survives a normal fw4 reload. No WAN input port is opened.
+set -eu
+RUN=/tmp/routerbox
+CFG="$RUN/network.json"
+[ -f "$CFG" ] || CFG=/etc/routerbox/settings.json
+command -v nft >/dev/null
+case "${1:-firewall}" in
+ stop)
+  nft list table inet routerbox_guard >/dev/null 2>&1 && nft delete table inet routerbox_guard || true
+  exit 0
+ ;;
+ guard|start|firewall|crash) ;;
+ *) exit 1 ;;
+esac
+[ -f "$CFG" ] || exit 0
+ENABLED=$(jsonfilter -i "$CFG" -e '@.enabled')
+[ "$ENABLED" = true ] || { nft list table inet routerbox_guard >/dev/null 2>&1 && nft delete table inet routerbox_guard || true; exit 0; }
+FAILURE=$(jsonfilter -i "$CFG" -e '@.failure')
+IPV6=$(jsonfilter -i "$CFG" -e '@.ipv6')
+mkdir -p "$RUN"
+RULES="$RUN/guard.nft"
+{
+ if nft list table inet routerbox_guard >/dev/null 2>&1; then echo 'delete table inet routerbox_guard'; fi
+ echo 'table inet routerbox_guard {'
+ echo 'set lan { type ifname; elements = {'
+ FIRST=1
+ for IFACE in $(jsonfilter -i "$CFG" -e '@.interfaces[*]'); do
+  case "$IFACE" in *[!a-zA-Z0-9_.:-]*|'') exit 1;; esac
+  [ "$FIRST" = 1 ] || printf ', '
+  printf '"%s"' "$IFACE"
+  FIRST=0
+ done
+ echo '}; }'
+ echo 'chain forward { type filter hook forward priority -5; policy accept;'
+ echo 'iifname @lan ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4 } return'
+ echo 'iifname @lan ip6 daddr { fc00::/7, fe80::/10, ff00::/8 } return'
+ if [ "$IPV6" != true ]; then echo 'iifname @lan meta nfproto ipv6 counter drop'; fi
+ echo 'iifname @lan oifname "rb-tun" return'
+ if [ "$FAILURE" = block ]; then echo 'iifname @lan counter drop'; fi
+ echo '}'
+ echo '}'
+} > "$RULES"
+nft -c -f "$RULES"
+nft -f "$RULES"

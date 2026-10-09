@@ -1,0 +1,25 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=10
+USE_PROCD=1
+start_service() {
+ mkdir -p /tmp/routerbox /etc/routerbox
+ chmod 700 /tmp/routerbox /etc/routerbox
+ [ -f /etc/routerbox/settings.json ] || /usr/bin/routerbox defaults > /etc/routerbox/settings.json
+ chmod 600 /etc/routerbox/settings.json
+ /usr/lib/routerbox/network guard || return 1
+ procd_open_instance
+ procd_set_param command /usr/bin/routerbox daemon
+ procd_set_param respawn 3600 5 5
+ procd_set_param term_timeout 35
+ procd_set_param stdout 1
+ procd_set_param stderr 1
+ procd_close_instance
+}
+service_triggers() {
+ procd_add_reload_trigger firewall network routerbox
+}
+reload_service() {
+ /usr/lib/routerbox/network firewall
+}
+# stop service preserves the crash guard. Disable through LuCI to restore direct access.

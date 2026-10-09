@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+[ -f /etc/uci-defaults/90-routerbox ] && {
+ sh /etc/uci-defaults/90-routerbox
+ rm -f /etc/uci-defaults/90-routerbox
+}
+/etc/init.d/rpcd restart
+/etc/init.d/routerbox restart
+exit 0

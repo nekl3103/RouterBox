@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+mkdir -p /etc/routerbox
+chmod 700 /etc/routerbox
+[ -f /etc/routerbox/settings.json ] || /usr/bin/routerbox defaults > /etc/routerbox/settings.json
+chmod 600 /etc/routerbox/settings.json
+uci -q get firewall.routerbox >/dev/null || {
+ uci set firewall.routerbox=include
+ uci set firewall.routerbox.type=script
+ uci set firewall.routerbox.path=/usr/lib/routerbox/network
+ uci set firewall.routerbox.fw4_compatible=1
+ uci commit firewall
+}
+/etc/init.d/routerbox enable
+exit 0

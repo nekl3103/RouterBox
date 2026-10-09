@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+/etc/init.d/routerbox stop
+/usr/bin/routerbox cleanup
+/etc/init.d/routerbox disable
+uci -q delete firewall.routerbox || true
+uci commit firewall
+exit 0

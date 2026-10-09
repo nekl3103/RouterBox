@@ -1,0 +1,31 @@
+#!/bin/sh
+# Execute from RAM; keep only compressed Go code in the persistent overlay.
+set -eu
+RUN=/tmp/routerbox
+ARCHIVE=/usr/lib/routerbox/controller.gz
+DEST="$RUN/routerbox-controller"
+mkdir -p "$RUN"
+chmod 700 "$RUN"
+HASH=$(sha256sum "$ARCHIVE")
+HASH=${HASH%% *}
+STORED=$(cat "$RUN/controller.sha" 2>/dev/null || true)
+if [ ! -x "$DEST" ] || [ "$STORED" != "$HASH" ]; then
+ LOCK="$RUN/unpack-controller.lock"
+ RETRIES=0
+ until mkdir "$LOCK" 2>/dev/null; do
+  RETRIES=$((RETRIES+1))
+  [ "$RETRIES" -le 10 ] || { echo 'Не удалось получить блокировку распаковки RouterBox' >&2; exit 1; }
+  sleep 1
+ done
+ trap 'rm -rf "$LOCK"; rm -f "$DEST.new.$$"' EXIT INT TERM
+ STORED=$(cat "$RUN/controller.sha" 2>/dev/null || true)
+ if [ ! -x "$DEST" ] || [ "$STORED" != "$HASH" ]; then
+  gzip -dc "$ARCHIVE" > "$DEST.new.$$"
+  chmod 700 "$DEST.new.$$"
+  mv -f "$DEST.new.$$" "$DEST"
+  printf '%s\n' "$HASH" > "$RUN/controller.sha"
+ fi
+ rmdir "$LOCK"
+ trap - EXIT INT TERM
+fi
+exec "$DEST" "$@"

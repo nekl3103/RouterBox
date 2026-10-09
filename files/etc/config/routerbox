@@ -1,0 +1,2 @@
+config routerbox 'main'
+ option profile 'mt7621'

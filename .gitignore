@@ -1,0 +1,12 @@
+/build/
+/dist/
+*.log
+
+/output/
+/.playwright-cli/
+
+.DS_Store
+*.pem
+*.key
+.env
+.env.*
