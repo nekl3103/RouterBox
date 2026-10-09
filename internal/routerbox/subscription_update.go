@@ -7,10 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
 func validateSubscriptionOptions(p Subscription) error {
+	if !validAgent(p.HWID) {
+		return errors.New("HWID: не более 256 символов, без переводов строк")
+	}
+	if p.HWID != "" && !strings.HasPrefix(p.URL, "https://") {
+		return errors.New("для передачи HWID нужен HTTPS URL подписки")
+	}
 	if !validAgent(p.UserAgent) {
 		return errors.New("User-Agent: не более 256 символов, без переводов строк")
 	}

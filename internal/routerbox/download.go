@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-type downloadOptions struct{ UserAgent, Proxy string }
+type downloadOptions struct{ UserAgent, Proxy, HWID string }
 
 func downloadError(err error) error {
 	var dns *net.DNSError
@@ -54,6 +54,9 @@ func fetchDocumentOptions(ctx context.Context, address string, limit int64, opts
 	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 25 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if opts.HWID != "" && req.URL.Host != via[0].URL.Host {
+			return errors.New("перенаправление HWID на другой сервер запрещено")
+		}
 		if len(via) > 5 {
 			return errors.New("слишком много перенаправлений")
 		}
@@ -85,6 +88,9 @@ func fetchDocumentOptions(ctx context.Context, address string, limit int64, opts
 			return nil, nil, errors.New("некорректный адрес загрузки")
 		}
 		req.Header.Set("User-Agent", agent)
+		if opts.HWID != "" {
+			req.Header.Set("X-Hwid", opts.HWID)
+		}
 		res, err := client.Do(req)
 		if err != nil {
 			last = downloadError(err)
@@ -116,7 +122,7 @@ func fetchDocumentOptions(ctx context.Context, address string, limit int64, opts
 }
 
 func (m *Manager) subscriptionDownload(p Subscription) ([]byte, http.Header, error) {
-	opts := downloadOptions{UserAgent: p.UserAgent}
+	opts := downloadOptions{UserAgent: p.UserAgent, HWID: p.HWID}
 	if p.DownloadVia == "vpn" {
 		if m.process == nil {
 			return nil, nil, errors.New("для обновления через VPN сначала включите VPN с рабочим правилом")

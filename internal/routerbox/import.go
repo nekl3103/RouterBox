@@ -87,12 +87,20 @@ func ParseSubscription(b []byte, sub string) ([]Node, []Rejection, error) {
 		var outs, eps []any
 		switch v := raw.(type) {
 		case map[string]any:
+			if isXrayProfile(v) {
+				return parseXrayProfiles([]any{v}, sub)
+			}
 			outs, _ = v["outbounds"].([]any)
 			eps, _ = v["endpoints"].([]any)
 			if str(v, "type") != "" {
 				outs = []any{v}
 			}
 		case []any:
+			if len(v) > 0 {
+				if first, ok := v[0].(map[string]any); ok && isXrayProfile(first) {
+					return parseXrayProfiles(v, sub)
+				}
+			}
 			outs = v
 		}
 		for _, v := range outs {

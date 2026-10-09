@@ -17,7 +17,7 @@ import (
 
 type Object = map[string]any
 
-const Version = "0.3.1"
+const Version = "0.3.2"
 const CoreVersion = "1.14.2-lx.12-router.1"
 const MaxDownload = 8 << 20
 
@@ -26,6 +26,9 @@ var validCategory = regexp.MustCompile(`^[a-z0-9][a-z0-9_!.-]*(?:@[a-z0-9_!.-]+)
 var validInterface = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,15}$`)
 
 type Subscription struct {
+	HWID           string      `json:"hwid,omitempty"`
+	HasHWID        bool        `json:"has_hwid,omitempty"`
+	ClearHWID      bool        `json:"clear_hwid,omitempty"`
 	UserAgent      string      `json:"user_agent,omitempty"`
 	DownloadVia    string      `json:"download_via,omitempty"`
 	FilterMode     string      `json:"filter_mode,omitempty"`

@@ -249,6 +249,8 @@ func (m *Manager) publish() {
 	s := m.Settings
 	s.Subscriptions = append([]Subscription{}, s.Subscriptions...)
 	for i := range s.Subscriptions {
+		s.Subscriptions[i].HasHWID = s.Subscriptions[i].HWID != ""
+		s.Subscriptions[i].HWID = ""
 		s.Subscriptions[i].HasURL = s.Subscriptions[i].URL != ""
 	}
 	s.CoreURL = ""
@@ -332,6 +334,12 @@ func (m *Manager) perform(action string, data json.RawMessage) error {
 		for i := range s.Subscriptions {
 			for _, old := range m.Settings.Subscriptions {
 				if old.ID == s.Subscriptions[i].ID {
+					if s.Subscriptions[i].ClearHWID {
+						s.Subscriptions[i].HWID = ""
+					} else if s.Subscriptions[i].HWID == "" {
+						s.Subscriptions[i].HWID = old.HWID
+					}
+					s.Subscriptions[i].ClearHWID = false
 					if s.Subscriptions[i].URL == "" {
 						s.Subscriptions[i].URL = old.URL
 					}
