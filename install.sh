@@ -37,7 +37,7 @@ cp keys/routerbox.pub /etc/apk/keys/routerbox.pub
 apk update
 if [ "$MODE" = --disabled ]; then
  [ ! -S /tmp/routerbox/control.sock ] || { echo 'RouterBox уже запущен; остановите его для установки без запуска.' >&2; exit 1; }
- apk add --no-scripts --no-commit-hooks ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.2.0-r6.apk
+ apk add --no-scripts --no-commit-hooks ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.3.0-r1.apk
  rm -f /etc/uci-defaults/90-routerbox
  /etc/init.d/routerbox disable
  mkdir -p /etc/routerbox
@@ -49,8 +49,8 @@ if [ "$MODE" = --disabled ]; then
  echo 'Установлено без запуска и автозапуска RouterBox.'
  exit 0
 elif [ "$MODE" = --app-only ]; then
- apk add ./luci-app-routerbox-0.2.0-r6.apk
+ apk add ./luci-app-routerbox-0.3.0-r1.apk
 else
- apk add ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.2.0-r6.apk
+ apk add ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.3.0-r1.apk
 fi
 echo 'Установлено. Откройте LuCI → Сервисы → RouterBox. Подключение по умолчанию отключено.'

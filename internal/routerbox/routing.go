@@ -7,7 +7,24 @@ import (
 
 // Public rules own their server selection; core selectors remain an implementation detail.
 func resolveRouting(s Settings, nodes []Node) (Settings, error) {
-	s.Rules = append([]Rule{}, s.Rules...)
+	expanded := []Rule{}
+	for _, r := range s.Rules {
+		if r.SeparateUDP && r.Enabled && r.Target == "vpn" {
+			udp := r
+			udp.ID += "-udp"
+			udp.Name += " · UDP"
+			udp.Network = "udp"
+			udp.Nodes = r.UDPNodes
+			udp.Mode = r.UDPMode
+			udp.Selected = r.UDPSelected
+			udp.SeparateUDP = false
+			expanded = append(expanded, udp)
+			r.Network = "tcp"
+			r.SeparateUDP = false
+		}
+		expanded = append(expanded, r)
+	}
+	s.Rules = expanded
 	s.Groups = append([]Group{}, s.Groups...)
 	enabled := map[string]bool{}
 	for _, p := range s.Subscriptions {

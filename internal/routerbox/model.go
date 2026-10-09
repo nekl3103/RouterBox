@@ -17,7 +17,7 @@ import (
 
 type Object = map[string]any
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 const CoreVersion = "1.14.2-lx.12-router.1"
 const MaxDownload = 8 << 20
 
@@ -26,15 +26,24 @@ var validCategory = regexp.MustCompile(`^[a-z0-9][a-z0-9_!.-]*(?:@[a-z0-9_!.-]+)
 var validInterface = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,15}$`)
 
 type Subscription struct {
-	ID       string      `json:"id"`
-	Name     string      `json:"name"`
-	URL      string      `json:"url,omitempty"`
-	Enabled  bool        `json:"enabled"`
-	Interval int         `json:"interval"`
-	Updated  int64       `json:"updated,omitempty"`
-	Error    string      `json:"error,omitempty"`
-	Rejected []Rejection `json:"rejected,omitempty"`
-	HasURL   bool        `json:"has_url,omitempty"`
+	UserAgent      string      `json:"user_agent,omitempty"`
+	DownloadVia    string      `json:"download_via,omitempty"`
+	FilterMode     string      `json:"filter_mode,omitempty"`
+	FilterPatterns []string    `json:"filter_patterns,omitempty"`
+	Attempted      int64       `json:"attempted,omitempty"`
+	Added          int         `json:"added,omitempty"`
+	Removed        int         `json:"removed,omitempty"`
+	Duplicates     int         `json:"duplicates,omitempty"`
+	Warning        string      `json:"warning,omitempty"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	URL            string      `json:"url,omitempty"`
+	Enabled        bool        `json:"enabled"`
+	Interval       int         `json:"interval"`
+	Updated        int64       `json:"updated,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	Rejected       []Rejection `json:"rejected,omitempty"`
+	HasURL         bool        `json:"has_url,omitempty"`
 }
 type Rejection struct {
 	Name   string `json:"name"`
@@ -64,19 +73,24 @@ type Group struct {
 	Failure   string   `json:"failure"`
 }
 type Rule struct {
-	ID         string   `json:"id,omitempty"`
-	Nodes      []string `json:"nodes"`
-	Mode       string   `json:"mode,omitempty"`
-	Selected   string   `json:"selected,omitempty"`
-	Name       string   `json:"name"`
-	Enabled    bool     `json:"enabled"`
-	Categories []string `json:"categories"`
-	Domains    []string `json:"domains"`
-	IPs        []string `json:"ips"`
-	Sources    []string `json:"sources"`
-	MACs       []string `json:"macs"`
-	Target     string   `json:"target"`
-	DNS        string   `json:"dns,omitempty"`
+	Network     string   `json:"network,omitempty"`
+	SeparateUDP bool     `json:"separate_udp,omitempty"`
+	UDPNodes    []string `json:"udp_nodes,omitempty"`
+	UDPMode     string   `json:"udp_mode,omitempty"`
+	UDPSelected string   `json:"udp_selected,omitempty"`
+	ID          string   `json:"id,omitempty"`
+	Nodes       []string `json:"nodes"`
+	Mode        string   `json:"mode,omitempty"`
+	Selected    string   `json:"selected,omitempty"`
+	Name        string   `json:"name"`
+	Enabled     bool     `json:"enabled"`
+	Categories  []string `json:"categories"`
+	Domains     []string `json:"domains"`
+	IPs         []string `json:"ips"`
+	Sources     []string `json:"sources"`
+	MACs        []string `json:"macs"`
+	Target      string   `json:"target"`
+	DNS         string   `json:"dns,omitempty"`
 }
 type Resolver struct {
 	ID      string `json:"id"`
@@ -101,6 +115,9 @@ type Settings struct {
 	RulesInterval int            `json:"rules_interval"`
 	DNSMode       string         `json:"dns_mode"`
 	DNSStrategy   string         `json:"dns_strategy"`
+	DNSErrorTTL   int            `json:"dns_error_ttl,omitempty"`
+	DNSWinTTL     int            `json:"dns_win_ttl,omitempty"`
+	DNSTimeout    int            `json:"dns_timeout,omitempty"`
 	DNSCache      bool           `json:"dns_cache"`
 	Bootstrap     string         `json:"bootstrap"`
 	Subscriptions []Subscription `json:"subscriptions"`
@@ -110,7 +127,7 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Interfaces: []string{"br-lan"}, MTU: 1400, Failure: "block", Final: "direct", Storage: "flash", RulesInterval: 24, DNSMode: "stable", DNSStrategy: "prefer_ipv4", DNSCache: true, Bootstrap: "1.1.1.1", DNS: []Resolver{{ID: "cloudflare", Name: "Cloudflare", Address: "https://1.1.1.1/dns-query", Detour: "direct"}, {ID: "quad9", Name: "Quad9", Address: "tls://9.9.9.9", Detour: "direct"}}, Subscriptions: []Subscription{}, Groups: []Group{}, Rules: []Rule{}}
+	return Settings{Interfaces: []string{"br-lan"}, MTU: 1400, Failure: "block", Final: "direct", Storage: "flash", RulesInterval: 24, DNSMode: "stable", DNSStrategy: "prefer_ipv4", DNSCache: true, DNSTimeout: 10, Bootstrap: "1.1.1.1", DNS: []Resolver{{ID: "cloudflare", Name: "Cloudflare", Address: "https://1.1.1.1/dns-query", Detour: "direct"}, {ID: "quad9", Name: "Quad9", Address: "tls://9.9.9.9", Detour: "direct"}}, Subscriptions: []Subscription{}, Groups: []Group{}, Rules: []Rule{}}
 }
 func hashID(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:12]) }
 func copyObject(o Object) Object {
@@ -187,6 +204,12 @@ func validate(s Settings) error {
 	if s.Failure != "block" && s.Failure != "direct" {
 		return errors.New("неизвестное поведение при отказе")
 	}
+	if (s.DNSErrorTTL != 0 && (s.DNSErrorTTL < 1 || s.DNSErrorTTL > 3600)) || (s.DNSWinTTL != 0 && (s.DNSWinTTL < 1 || s.DNSWinTTL > 86400)) {
+		return errors.New("некорректное время резервирования DNS")
+	}
+	if s.DNSTimeout != 0 && (s.DNSTimeout < 2 || s.DNSTimeout > 30) {
+		return errors.New("Таймаут DNS: 2–30 секунд")
+	}
 	if s.RulesInterval < 1 || s.RulesInterval > 720 {
 		return errors.New("интервал списков: 1–720 часов")
 	}
@@ -206,6 +229,9 @@ func validate(s Settings) error {
 			return errors.New("повторяющийся ID подписки")
 		}
 		subIDs[p.ID] = true
+		if e := validateSubscriptionOptions(p); e != nil {
+			return e
+		}
 		if e := validateURL(p.URL); e != nil {
 			return e
 		}
@@ -283,6 +309,12 @@ func validate(s Settings) error {
 		}
 	}
 	for _, r := range s.Rules {
+		if r.Network != "" && r.Network != "tcp" && r.Network != "udp" {
+			return errors.New("Протокол правила: TCP или UDP")
+		}
+		if r.SeparateUDP && (r.Target != "vpn" || r.Network != "" || len(r.ID) > 52) {
+			return errors.New("Отдельный UDP доступен для общего VPN-правила с коротким ID")
+		}
 		if !ids[r.Target] && r.Target != "vpn" {
 			return errors.New("неизвестное направление правила")
 		}
@@ -318,7 +350,13 @@ func validate(s Settings) error {
 			return errors.New("пустое правило запрещено")
 		}
 	}
-	for _, choice := range append([]Rule{{Target: s.Final, Nodes: s.FinalNodes, Mode: s.FinalMode, Selected: s.FinalSelected}}, s.Rules...) {
+	choices := append([]Rule{{Target: s.Final, Nodes: s.FinalNodes, Mode: s.FinalMode, Selected: s.FinalSelected}}, s.Rules...)
+	for _, r := range s.Rules {
+		if r.SeparateUDP {
+			choices = append(choices, Rule{Target: "vpn", Nodes: r.UDPNodes, Mode: r.UDPMode, Selected: r.UDPSelected})
+		}
+	}
+	for _, choice := range choices {
 		if len(choice.Nodes) > 64 {
 			return errors.New("выберите не более 64 серверов")
 		}

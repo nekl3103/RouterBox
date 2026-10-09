@@ -32,3 +32,14 @@ assert(!source.includes("['groups','Группы серверов']"));
 assert(!source.includes("input(p.url,function(v){p.url=v;},'password')"));
 if(process.env.ROUTERBOX_WRITE_FIXTURE)fs.writeFileSync('build/ui-fixture.json',JSON.stringify(state));
 console.log('LuCI views, subscription/routing dialogs, null state and job lock: OK');
+
+page.busy=false;page.subscriptionDialog(settings.subscriptions[0]);
+const subscriptionFields=ui.modal.children.flatMap(descendants);
+function labelText(node){return node.children.filter(c=>c instanceof Element&&c.tag==='span').flatMap(c=>c.children).join('');}
+for(const name of ['Загрузка подписки','User-Agent','Фильтр серверов','Слова и регулярные выражения'])assert(subscriptionFields.some(n=>n.tag==='label'&&labelText(n)===name),name);
+const patternField=subscriptionFields.find(n=>n.tag==='label'&&labelText(n)==='Слова и регулярные выражения');
+const patternControl=patternField.children.find(n=>n.tag==='textarea');patternControl.value='(?i)de.{1,3}\nnetherlands';patternControl.events.input();
+page.ruleDialog({...settings.rules[0],separate_udp:true,udp_nodes:['b']},0);
+assert(ui.modal.children.flatMap(descendants).some(n=>n.tag==='strong'&&n.children.includes('Серверы для UDP')));
+page.showTab('dns');assert(descendants(page.content).some(n=>n.tag==='label'&&labelText(n)==='Таймаут DNS, секунд'));
+console.log('Subscription filters, UDP pool and DNS controls: OK');

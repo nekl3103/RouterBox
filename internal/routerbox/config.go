@@ -99,7 +99,7 @@ func Generate(s Settings, nodes []Node, paths map[string]string, run, secret str
 		dnsServers = append(dnsServers, o)
 		dnsTags = append(dnsTags, d.ID)
 	}
-	dnsServers = append(dnsServers, Object{"type": "group", "tag": "dns-default", "servers": dnsTags, "mode": s.DNSMode})
+	dnsServers = append(dnsServers, Object{"type": "group", "tag": "dns-default", "servers": dnsTags, "mode": s.DNSMode, "error_ttl": fmt.Sprintf("%ds", defaultSeconds(s.DNSErrorTTL, 120)), "win_ttl": fmt.Sprintf("%ds", defaultSeconds(s.DNSWinTTL, 300))})
 	dnsRules := []Object{{"domain_suffix": []string{"lan", "local", "home.arpa"}, "domain_regex": []string{"^[^.]+$"}, "action": "route", "server": "lan-dns"}, {"domain": []string{"localhost"}, "action": "route", "server": "lan-dns"}}
 	routeRules := []Object{{"inbound": []string{"dns-in"}, "action": "hijack-dns"}, {"action": "sniff", "timeout": "300ms"}, {"protocol": "dns", "action": "hijack-dns"}, {"ip_is_private": true, "action": "route", "outbound": "direct"}}
 	sets := []Object{}
@@ -115,6 +115,9 @@ func Generate(s Settings, nodes []Node, paths map[string]string, run, secret str
 			continue
 		}
 		match := Object{}
+		if r.Network != "" {
+			match["network"] = r.Network
+		}
 		if len(r.Categories) > 0 {
 			tags := []string{}
 			for _, c := range r.Categories {
@@ -227,10 +230,24 @@ func Generate(s Settings, nodes []Node, paths map[string]string, run, secret str
 		tun["route_exclude_address"] = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4", "fc00::/7", "fe80::/10", "ff00::/8"}
 	}
 	inbounds := []Object{{"type": "direct", "tag": "dns-in", "listen": "127.0.0.1", "listen_port": 5354}}
+	if len(s.Groups) > 0 {
+		downloadGroups := []string{}
+		for _, g := range s.Groups {
+			if !strings.HasSuffix(g.ID, "-udp") {
+				downloadGroups = append(downloadGroups, groupTag(g.ID))
+			}
+		}
+		if len(downloadGroups) == 0 {
+			downloadGroups = append(downloadGroups, groupTag(s.Groups[0].ID))
+		}
+		outbounds = append(outbounds, Object{"type": "selector", "tag": "subscription-out", "outbounds": downloadGroups, "default": downloadGroups[0]})
+		inbounds = append(inbounds, Object{"type": "mixed", "tag": "subscription-in", "listen": "127.0.0.1", "listen_port": 9098, "users": []Object{{"username": "routerbox", "password": secret}}})
+		routeRules = append([]Object{{"inbound": []string{"subscription-in"}, "action": "route", "outbound": "subscription-out"}}, routeRules...)
+	}
 	if !probe {
 		inbounds = append(inbounds, tun)
 	}
-	config := Object{"log": Object{"disabled": true}, "dns": Object{"servers": dnsServers, "rules": dnsRules, "final": "dns-default", "strategy": s.DNSStrategy, "disable_cache": !s.DNSCache, "cache_capacity": 1024, "reverse_mapping": true}, "inbounds": inbounds, "outbounds": outbounds, "route": Object{"auto_detect_interface": true, "default_domain_resolver": "bootstrap", "rules": routeRules, "rule_set": sets, "final": final}, "experimental": Object{"clash_api": Object{"external_controller": "127.0.0.1:9097", "secret": secret}}}
+	config := Object{"log": Object{"disabled": true}, "dns": Object{"servers": dnsServers, "rules": dnsRules, "final": "dns-default", "strategy": s.DNSStrategy, "disable_cache": !s.DNSCache, "cache_capacity": 1024, "timeout": fmt.Sprintf("%ds", dnsTimeout(s)), "reverse_mapping": true}, "inbounds": inbounds, "outbounds": outbounds, "route": Object{"auto_detect_interface": true, "default_domain_resolver": "bootstrap", "rules": routeRules, "rule_set": sets, "final": final}, "experimental": Object{"clash_api": Object{"external_controller": "127.0.0.1:9097", "secret": secret}}}
 	if probe {
 		config["route"].(Object)["auto_detect_interface"] = false
 	}

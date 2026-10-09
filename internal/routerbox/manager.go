@@ -70,6 +70,7 @@ type Manager struct {
 	secret                  string
 	events                  []string
 	traffic                 Object
+	connections             []Object
 	stopping                bool
 	lastRetry               int64
 }
@@ -102,41 +103,6 @@ func NewManager(root, run, core string) (*Manager, error) {
 func fetchContext(ctx context.Context, address string, limit int64) ([]byte, error) {
 	b, _, err := fetchDocument(ctx, address, limit)
 	return b, err
-}
-func fetchDocument(ctx context.Context, address string, limit int64) ([]byte, http.Header, error) {
-	if e := validateURL(address); e != nil {
-		return nil, nil, e
-	}
-	client := &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 5 {
-			return errors.New("слишком много перенаправлений")
-		}
-		if e := validateURL(req.URL.String()); e != nil {
-			return e
-		}
-		if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
-			return errors.New("понижение HTTPS запрещено")
-		}
-		return nil
-	}}
-	req, _ := http.NewRequestWithContext(ctx, "GET", address, nil)
-	req.Header.Set("User-Agent", "RouterBox/"+Version+" sing-box")
-	res, e := client.Do(req)
-	if e != nil {
-		return nil, nil, errors.New("не удалось загрузить: сеть, DNS или TLS")
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return nil, nil, fmt.Errorf("ошибка загрузки HTTP %d", res.StatusCode)
-	}
-	b, e := io.ReadAll(io.LimitReader(res.Body, limit+1))
-	if e != nil {
-		return nil, nil, errors.New("соединение прервано")
-	}
-	if int64(len(b)) > limit {
-		return nil, nil, errors.New("превышен допустимый размер загрузки")
-	}
-	return b, res.Header, nil
 }
 func (m *Manager) commandContext() context.Context {
 	if m.stopping {
@@ -316,7 +282,7 @@ func (m *Manager) publish() {
 			}
 		}
 	}
-	b, _ := json.Marshal(Object{"version": Version, "core_version": CoreVersion, "running": m.process != nil, "settings": s, "nodes": visible, "selections": m.selections, "events": append([]string{}, m.events...), "devices": devices, "traffic": nonNilObject(m.traffic), "catalogue": catalogue, "storage": Object{"flash_free": freeBytes(m.Root), "ram_free": freeBytes(m.Run), "mem_available": availableMemory(freeBytes(m.Run)), "controller_heap": mem.HeapAlloc}})
+	b, _ := json.Marshal(Object{"version": Version, "core_version": CoreVersion, "running": m.process != nil, "settings": s, "nodes": visible, "selections": m.selections, "events": append([]string{}, m.events...), "devices": devices, "traffic": nonNilObject(m.traffic), "connections": m.connections, "catalogue": catalogue, "storage": Object{"flash_free": freeBytes(m.Root), "ram_free": freeBytes(m.Run), "mem_available": availableMemory(freeBytes(m.Run)), "controller_heap": mem.HeapAlloc}})
 	m.snapshot.Store(b)
 }
 func (m *Manager) State() Object {
@@ -372,6 +338,11 @@ func (m *Manager) perform(action string, data json.RawMessage) error {
 					s.Subscriptions[i].Updated = old.Updated
 					s.Subscriptions[i].Rejected = old.Rejected
 					s.Subscriptions[i].Error = old.Error
+					s.Subscriptions[i].Attempted = old.Attempted
+					s.Subscriptions[i].Added = old.Added
+					s.Subscriptions[i].Removed = old.Removed
+					s.Subscriptions[i].Duplicates = old.Duplicates
+					s.Subscriptions[i].Warning = old.Warning
 				}
 			}
 		}
@@ -457,76 +428,6 @@ func (m *Manager) checkNode(n Node) error {
 	}
 	return nil
 }
-func (m *Manager) refresh(id string) error {
-	if e := m.ensureCore(); e != nil {
-		return e
-	}
-	changed := false
-	for i := range m.Settings.Subscriptions {
-		p := &m.Settings.Subscriptions[i]
-		if (!p.Enabled && id != p.ID) || (id != "" && id != "__due__" && id != p.ID) {
-			continue
-		}
-		if id == "__due__" && time.Now().Unix()-p.Updated < int64(p.Interval)*3600 {
-			continue
-		}
-		b, headers, e := fetchDocument(m.ctx, p.URL, MaxDownload)
-		if e != nil {
-			p.Error = e.Error()
-			continue
-		}
-		nodes, bad, e := ParseSubscription(b, p.ID)
-		if e != nil {
-			p.Error = e.Error()
-			continue
-		}
-		valid := []Node{}
-		for _, n := range nodes {
-			if e = m.checkNode(n); e != nil {
-				bad = append(bad, Rejection{Name: n.Name, Reason: e.Error()})
-			} else {
-				valid = append(valid, n)
-			}
-		}
-		if len(valid) == 0 {
-			p.Error = "нет совместимых серверов; предыдущий список сохранён"
-			p.Rejected = bad
-			continue
-		}
-		remaining := []Node{}
-		for _, n := range m.Nodes {
-			if n.Subscription != p.ID {
-				remaining = append(remaining, n)
-			}
-		}
-		if len(remaining)+len(valid) > 1024 {
-			p.Error = "лимит: всего не более 1024 серверов"
-			continue
-		}
-		m.Nodes = append(remaining, valid...)
-		if p.Name == "" || p.Name == "Подписка" {
-			p.Name = subscriptionTitle(headers, b, p.URL)
-		}
-		p.Updated = time.Now().Unix()
-		p.Error = ""
-		p.Rejected = bad
-		changed = true
-	}
-	if e := writeJSON(filepath.Join(m.Root, "nodes.json"), m.Nodes); e != nil {
-		return e
-	}
-	if e := m.persistSettings(m.Settings); e != nil {
-		return e
-	}
-	if changed && m.Settings.Enabled {
-		if e := m.apply(m.Settings); e != nil {
-			m.event("Рабочее подключение сохранено; исправьте состав групп")
-			return e
-		}
-	}
-	m.event("Обновление подписок завершено")
-	return nil
-}
 func (m *Manager) network(action string, s Settings) error {
 	if m.CoreOverride != "" {
 		return nil
@@ -537,6 +438,7 @@ func (m *Manager) network(action string, s Settings) error {
 	return m.command(25, "/usr/lib/routerbox/network", action)
 }
 func (m *Manager) stopCore() {
+	m.connections = nil
 	if m.process == nil {
 		return
 	}
@@ -1018,6 +920,7 @@ func (m *Manager) tick() {
 	if m.process != nil {
 		if o, e := m.coreAPI("GET", "/connections", nil, 2); e == nil {
 			m.traffic = Object{"upload": o["uploadTotal"], "download": o["downloadTotal"], "core_memory": o["memory"]}
+			m.connections = m.connectionRows(o)
 		}
 	}
 	due := false

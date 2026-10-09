@@ -329,7 +329,7 @@ func (m *Manager) compileRules(s Settings) (map[string]string, error) {
 		return paths, nil
 	}
 	for _, c := range categories {
-		if !strings.HasPrefix(c, "allow-") {
+		if !strings.HasPrefix(c, "allow-") && !prebuiltCategory(c) {
 			if e := m.ensureDomainDB(); e != nil {
 				return nil, e
 			}
@@ -338,6 +338,22 @@ func (m *Manager) compileRules(s Settings) (map[string]string, error) {
 	}
 	var total int64
 	for _, c := range categories {
+		if prebuiltCategory(c) {
+			dest, err := m.prebuiltRule(c)
+			if err != nil {
+				return nil, err
+			}
+			info, err := os.Stat(dest)
+			if err != nil {
+				return nil, err
+			}
+			total += info.Size()
+			if total > 8<<20 {
+				return nil, errors.New("выбранные правила превышают 8 МБ")
+			}
+			paths[c] = dest
+			continue
+		}
 		var o Object
 		var e error
 		if strings.HasPrefix(c, "allow-") {

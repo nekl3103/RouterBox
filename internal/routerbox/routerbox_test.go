@@ -524,6 +524,9 @@ func TestActualServiceRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(m.Run, "domains.zip")); err == nil {
+		t.Fatal("popular services downloaded the full category archive")
+	}
 	if len(paths) != 6 {
 		t.Fatal("selected service sets missing")
 	}
