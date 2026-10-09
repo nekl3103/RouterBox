@@ -40,7 +40,14 @@ jobs:
             go-${{ runner.os }}-${{ runner.arch }}-1.26.8-
       - name: Test controller and LuCI
         run: |
-          go test -race ./...
+          mkdir -p build
+          if go test -race ./... > build/controller-test.log 2>&1; then
+            cat build/controller-test.log
+          else
+            cat build/controller-test.log
+            python3 -c 'from pathlib import Path; log=Path("build/controller-test.log").read_text()[-60000:]; print("::error title=Controller tests::" + log.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))'
+            exit 1
+          fi
           go vet ./...
           node --check files/www/luci-static/resources/view/routerbox/main.js
           node tests/ui-smoke.cjs

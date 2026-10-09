@@ -10,18 +10,19 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestDownloadRetriesAgentAndRedaction(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
+		attempt := attempts.Add(1)
 		if r.UserAgent() != "TestClient" {
 			t.Error("custom agent missing")
 		}
-		if attempts < 3 {
+		if attempt < 3 {
 			w.WriteHeader(503)
 			return
 		}
@@ -29,14 +30,14 @@ func TestDownloadRetriesAgentAndRedaction(t *testing.T) {
 	}))
 	defer server.Close()
 	b, _, err := fetchDocumentOptions(context.Background(), server.URL, 20, downloadOptions{UserAgent: "TestClient"})
-	if err != nil || string(b) != "ok" || attempts != 3 {
-		t.Fatalf("retry: %d %s %v", attempts, b, err)
+	if err != nil || string(b) != "ok" || attempts.Load() != 3 {
+		t.Fatalf("retry: %d %s %v", attempts.Load(), b, err)
 	}
-	denied := 0
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { denied++; w.WriteHeader(401) }))
+	var denied atomic.Int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { denied.Add(1); w.WriteHeader(401) }))
 	defer s.Close()
 	_, _, err = fetchDocument(context.Background(), s.URL, 20)
-	if denied != 1 || err == nil || !strings.Contains(err.Error(), "401") {
+	if denied.Load() != 1 || err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatal("permanent HTTP errors must not retry")
 	}
 	err = downloadError(&net.DNSError{Err: "private-subscription-token", Name: "private-host"})
