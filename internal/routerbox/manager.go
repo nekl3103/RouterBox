@@ -69,6 +69,7 @@ type Manager struct {
 	exited                  chan error
 	secret                  string
 	events                  []string
+	updateInfo              Object
 	traffic                 Object
 	connections             []Object
 	stopping                bool
@@ -284,7 +285,7 @@ func (m *Manager) publish() {
 			}
 		}
 	}
-	b, _ := json.Marshal(Object{"version": Version, "core_version": CoreVersion, "running": m.process != nil, "settings": s, "nodes": visible, "selections": m.selections, "events": append([]string{}, m.events...), "devices": devices, "traffic": nonNilObject(m.traffic), "connections": m.connections, "catalogue": catalogue, "storage": Object{"flash_free": freeBytes(m.Root), "ram_free": freeBytes(m.Run), "mem_available": availableMemory(freeBytes(m.Run)), "controller_heap": mem.HeapAlloc}})
+	b, _ := json.Marshal(Object{"version": Version, "core_version": CoreVersion, "running": m.process != nil, "settings": s, "nodes": visible, "selections": m.selections, "events": append([]string{}, m.events...), "devices": devices, "traffic": nonNilObject(m.traffic), "connections": m.connections, "updates": nonNilObject(m.updateInfo), "catalogue": catalogue, "storage": Object{"flash_free": freeBytes(m.Root), "ram_free": freeBytes(m.Run), "mem_available": availableMemory(freeBytes(m.Run)), "controller_heap": mem.HeapAlloc}})
 	m.snapshot.Store(b)
 }
 func (m *Manager) State() Object {
@@ -324,6 +325,8 @@ func (m *Manager) Submit(action string, data json.RawMessage) (Object, error) {
 }
 func (m *Manager) perform(action string, data json.RawMessage) error {
 	switch action {
+	case "updatecheck":
+		return m.checkUpdate()
 	case "subscription":
 		return m.addSubscription(data)
 	case "save":

@@ -47,7 +47,7 @@ func main() {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"nodes": n, "rejected": bad})
 	case "rpc":
 		if len(args) > 1 && args[1] == "list" {
-			fmt.Println(`{"state":{},"save":{"data":""},"subscription":{"data":""},"refresh":{"id":""},"catalogue":{},"rules":{},"check":{"ids":[]},"start":{},"stop":{}}`)
+			fmt.Println(`{"state":{},"save":{"data":""},"subscription":{"data":""},"refresh":{"id":""},"catalogue":{},"updatecheck":{},"rules":{},"check":{"ids":[]},"start":{},"stop":{}}`)
 			return
 		}
 		if len(args) < 3 || args[1] != "call" {

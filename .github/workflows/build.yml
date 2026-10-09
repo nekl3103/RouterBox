@@ -109,7 +109,7 @@ jobs:
           cat > release-notes.md <<'EOF'
           RouterBox для OpenWrt APK, ramips/mt7621 (mipsel_24kc).
 
-          Для установки скачайте routerbox-mt7621-0.3.2.tar.gz. Инструкция находится в README.md и docs/INSTALL.md репозитория; README.ru.md также включён в архив.
+          Для установки скачайте routerbox-mt7621-0.3.3.tar.gz. Инструкция находится в README.md и docs/INSTALL.md репозитория; README.ru.md также включён в архив.
 
           По умолчанию VPN отключён. Для установки рядом с работающим VPN используйте install.sh --disabled.
           EOF

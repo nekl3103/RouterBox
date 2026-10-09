@@ -6,7 +6,7 @@ const page=new Function('view','rpc','poll','ui','E',fs.readFileSync('files/www/
 const settings={enabled:false,interfaces:['br-lan'],ipv6:false,mtu:1400,failure:'block',final:'direct',storage:'flash',core_url:'',core_sha:'',core_size:0,rules_interval:24,dns_mode:'stable',dns_strategy:'prefer_ipv4',dns_cache:true,bootstrap:'1.1.1.1',subscriptions:[{id:'sub',name:'Altflow',enabled:true,url:'https://example.com/subscription',interval:24}],groups:[{id:'main',name:'Main',nodes:['a','b'],mode:'fastest',selected:'a',interval:300,timeout:5,tolerance:50,hold:300,failures:3,recovery:2,window:30,test_url:'https://example.com/',failure:'block'}],rules:[{name:'YouTube',enabled:true,categories:['youtube'],domains:[],ips:[],sources:[],macs:[],id:'youtube',target:'vpn',dns:'',nodes:[],mode:'stable'}],dns:[{id:'cf',name:'Cloudflare',address:'https://1.1.1.1/dns-query',detour:'direct'}]};
 const state={settings,nodes:[{id:'a',name:'Server A',subscription:'sub',protocol:'vless',server:'example.com',port:443},{id:'b',name:'Server B',subscription:'sub',protocol:'trojan',server:'example.net',port:443}],devices:[{name:'TV',ip:'192.168.1.2',mac:'00:11:22:33:44:55'}],catalogue:{categories:['youtube','google','telegram']},selections:{main:'a'},events:['Ready'],storage:{flash_free:10e6,ram_free:100e6,controller_heap:2e6},job:{},traffic:{upload:100,download:200},running:true,core_version:'test'};
 assert(page.render(state) instanceof Element);
-for(const tab of ['overview','subscriptions','servers','routing','dns','settings','logs']){page.showTab(tab);assert(page.content.children.length===1,tab);}
+for(const tab of ['overview','subscriptions','servers','routing','dns','settings','updates','logs']){page.showTab(tab);assert(page.content.children.length===1,tab);}
 assert.deepEqual(declarations.find(d=>d.method==='state').expect,{'':{}});
 assert.deepEqual(declarations.find(d=>d.method==='save').params,['data']);
 page.busy=true;page.setBusy();assert(page.root.querySelectorAll('[data-mutation]').every(b=>b.disabled));
@@ -26,7 +26,7 @@ selectedChip.children.find(n=>n instanceof Element&&n.tag==='button').attrs.clic
 page.draft.final='vpn';page.showTab('routing');
 page.state.nodes[0].health=null;page.state.catalogue=null;page.state.events=null;page.state=normalizeForTest(page.state);
 function normalizeForTest(st){st.catalogue=st.catalogue||{};st.events=st.events||[];return st;}
-for(const tab of ['overview','subscriptions','servers','routing','dns','settings','logs'])page.showTab(tab);
+for(const tab of ['overview','subscriptions','servers','routing','dns','settings','updates','logs'])page.showTab(tab);
 const source=fs.readFileSync('files/www/luci-static/resources/view/routerbox/main.js','utf8');
 assert(!source.includes("['groups','Группы серверов']"));
 assert(!source.includes("input(p.url,function(v){p.url=v;},'password')"));
