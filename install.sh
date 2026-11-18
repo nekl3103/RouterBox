@@ -32,12 +32,16 @@ if [ "$MODE" != --disabled ] && pidof sing-box >/dev/null 2>&1 && [ ! -S /tmp/ro
  echo 'Уже работает другое ядро sing-box. Остановите его перед установкой RouterBox.' >&2
  exit 1
 fi
+# Trust the RouterBox key only for this installation: a key left in /etc/apk/keys
+# would make apk accept any package signed with it, from any source, later on.
+KEY=/etc/apk/keys/routerbox.pub
 mkdir -p /etc/apk/keys
-cp keys/routerbox.pub /etc/apk/keys/routerbox.pub
+cp keys/routerbox.pub "$KEY"
+trap 'rm -f "$KEY"' EXIT INT TERM
 apk update
 if [ "$MODE" = --disabled ]; then
  [ ! -S /tmp/routerbox/control.sock ] || { echo 'RouterBox уже запущен; остановите его для установки без запуска.' >&2; exit 1; }
- apk add --no-scripts --no-commit-hooks ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.3.3-r1.apk
+ apk add --no-scripts --no-commit-hooks ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.4.0-r1.apk
  rm -f /etc/uci-defaults/90-routerbox
  /etc/init.d/routerbox disable
  mkdir -p /etc/routerbox
@@ -49,8 +53,8 @@ if [ "$MODE" = --disabled ]; then
  echo 'Установлено без запуска и автозапуска RouterBox.'
  exit 0
 elif [ "$MODE" = --app-only ]; then
- apk add ./luci-app-routerbox-0.3.3-r1.apk
+ apk add ./luci-app-routerbox-0.4.0-r1.apk
 else
- apk add ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.3.3-r1.apk
+ apk add ./routerbox-core-1.14.2-r13.apk ./luci-app-routerbox-0.4.0-r1.apk
 fi
 echo 'Установлено. Откройте LuCI → Сервисы → RouterBox. Подключение по умолчанию отключено.'

@@ -177,8 +177,8 @@ func TestMissingServersAndSecretRedaction(t *testing.T) {
 	m.Settings = s
 	m.publish()
 	b, _ := json.Marshal(m.State())
-	if !strings.Contains(string(b), "example.com/private") {
-		t.Fatal("subscription URL must be editable as plain text")
+	if strings.Contains(string(b), "example.com/private") {
+		t.Fatal("subscription URL path (token) exposed through LuCI read access")
 	}
 	if strings.Contains(string(b), "\"config\"") {
 		t.Fatal("node credentials exposed")
@@ -571,7 +571,8 @@ func TestAddSubscriptionImportsWithoutEnablingVPN(t *testing.T) {
 	state := m.State()
 	settings := state["settings"].(map[string]any)
 	subs := settings["subscriptions"].([]any)
-	if subs[0].(map[string]any)["url"] != server.URL {
-		t.Fatal("plain URL missing from settings")
+	// The token-bearing URL stays on the router; LuCI gets only its host.
+	if _, leaked := subs[0].(map[string]any)["url"]; leaked || subs[0].(map[string]any)["url_host"] != server.URL {
+		t.Fatal("subscription URL must be replaced by its host in state", subs[0])
 	}
 }

@@ -256,7 +256,10 @@ func (m *Manager) publish() {
 	for i := range s.Subscriptions {
 		s.Subscriptions[i].HasHWID = s.Subscriptions[i].HWID != ""
 		s.Subscriptions[i].HWID = ""
+		// The URL usually carries the subscription token: LuCI read access shows only the host.
 		s.Subscriptions[i].HasURL = s.Subscriptions[i].URL != ""
+		s.Subscriptions[i].URLHost = subscriptionHost(s.Subscriptions[i].URL)
+		s.Subscriptions[i].URL = ""
 	}
 	s.CoreURL = ""
 	visible := []Object{}
@@ -347,6 +350,8 @@ func (m *Manager) perform(action string, data json.RawMessage) error {
 						s.Subscriptions[i].HWID = old.HWID
 					}
 					s.Subscriptions[i].ClearHWID = false
+					s.Subscriptions[i].HasURL = false
+					s.Subscriptions[i].URLHost = ""
 					if s.Subscriptions[i].URL == "" {
 						s.Subscriptions[i].URL = old.URL
 					}
