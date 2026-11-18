@@ -170,11 +170,11 @@ func (m *Manager) refresh(id string) error {
 		}
 		nodes, p.Duplicates = filterSubscription(nodes, *p)
 		valid := []Node{}
-		for _, n := range nodes {
-			if err = m.checkNode(n); err != nil {
-				bad = append(bad, Rejection{Name: n.Name, Reason: err.Error()})
+		for i, err := range m.checkNodeBatch(nodes) {
+			if err != nil {
+				bad = append(bad, Rejection{Name: nodes[i].Name, Reason: err.Error()})
 			} else {
-				valid = append(valid, n)
+				valid = append(valid, nodes[i])
 			}
 		}
 		p.Rejected = bad

@@ -74,6 +74,10 @@ type Manager struct {
 	connections             []Object
 	stopping                bool
 	lastRetry               int64
+	lastFastRestart         int64
+	apiFailures             int
+	coreLog                 *coreLog
+	rulesSwapped            int
 }
 
 func NewManager(root, run, core string) (*Manager, error) {
@@ -440,6 +444,53 @@ func (m *Manager) checkNode(n Node) error {
 	}
 	return nil
 }
+
+// checkNodeBatch validates many servers with one core process. Only a rejected
+// batch falls back to per-server checks, so a large subscription no longer
+// blocks failover for minutes on MT7621.
+func (m *Manager) checkNodeBatch(nodes []Node) []error {
+	errs := make([]error, len(nodes))
+	for start := 0; start < len(nodes); start += nodeCheckBatch {
+		end := start + nodeCheckBatch
+		if end > len(nodes) {
+			end = len(nodes)
+		}
+		chunk := nodes[start:end]
+		if len(chunk) > 1 && m.checkChunk(chunk) == nil {
+			continue
+		}
+		for i, n := range chunk {
+			errs[start+i] = m.checkNode(n)
+		}
+	}
+	return errs
+}
+
+const nodeCheckBatch = 64
+
+func (m *Manager) checkChunk(nodes []Node) error {
+	outbounds := []Object{{"type": "direct", "tag": "direct"}}
+	endpoints := []Object{}
+	for i, n := range nodes {
+		o := copyObject(n.Config)
+		o["tag"] = fmt.Sprintf("test-%d", i)
+		if n.Endpoint {
+			endpoints = append(endpoints, o)
+		} else {
+			outbounds = append(outbounds, o)
+		}
+	}
+	c := Object{"log": Object{"disabled": true}, "outbounds": outbounds}
+	if len(endpoints) > 0 {
+		c["endpoints"] = endpoints
+	}
+	path := filepath.Join(m.Run, "node-check.json")
+	defer os.Remove(path)
+	if e := writeJSON(path, c); e != nil {
+		return e
+	}
+	return m.command(30, m.corePath(), "check", "-c", path)
+}
 func (m *Manager) network(action string, s Settings) error {
 	if m.CoreOverride != "" {
 		return nil
@@ -480,6 +531,8 @@ func (m *Manager) startCore(config Object) error {
 	go func() { done <- cmd.Wait() }()
 	m.process = cmd
 	m.exited = done
+	m.coreLog = log
+	m.apiFailures = 0
 	for i := 0; i < 60; i++ {
 		select {
 		case <-done:
@@ -579,6 +632,9 @@ func (m *Manager) apply(s Settings) error {
 		m.Settings = old
 		return e
 	}
+	for _, path := range paths {
+		preserve[path] = path
+	}
 	config, e := Generate(s, m.Nodes, paths, m.Run, m.secret, false)
 	if e != nil {
 		m.Settings = old
@@ -597,7 +653,12 @@ func (m *Manager) apply(s Settings) error {
 		m.nextCheck = map[string]int64{}
 		m.lastRules = time.Now().Unix()
 		committedRules = true
-		m.event("Настройки сохранены; конфигурация ядра не изменилась")
+		m.cleanRules(paths)
+		if m.rulesSwapped > 0 {
+			m.event(fmt.Sprintf("Списки доменов обновлены без перезапуска ядра: %d", m.rulesSwapped))
+		} else {
+			m.event("Настройки сохранены; конфигурация ядра не изменилась")
+		}
 		return nil
 	}
 	candidate := filepath.Join(m.Run, "candidate.json")
@@ -633,6 +694,7 @@ func (m *Manager) apply(s Settings) error {
 			if rollback := m.startCore(oldConfig); rollback == nil {
 				_ = m.network("start", old)
 				_ = m.configureDNS(true)
+				m.restoreSelections()
 				m.event("Восстановлена предыдущая конфигурация")
 			}
 		} else {
@@ -647,8 +709,8 @@ func (m *Manager) apply(s Settings) error {
 	m.Settings = s
 	m.pruneHealth(s)
 	m.lastRules = time.Now().Unix()
-	m.selections = map[string]string{}
 	m.nextCheck = map[string]int64{}
+	m.restoreSelections()
 	m.event("Настройки применены")
 	committedRules = true
 	m.cleanRules(paths)
@@ -659,12 +721,30 @@ func (m *Manager) cleanRules(paths map[string]string) {
 	for _, p := range paths {
 		keep[p] = true
 	}
-	_ = filepath.WalkDir(filepath.Join(m.Root, "rules"), func(path string, d os.DirEntry, e error) error {
-		if e == nil && !d.IsDir() && strings.HasSuffix(path, ".srs") && !keep[path] {
+	root := filepath.Join(m.Root, "rules")
+	dirs := []string{}
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, e error) error {
+		if e != nil {
+			return nil
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if strings.HasSuffix(path, ".srs") && !keep[path] {
+			_ = os.Remove(path)
+		}
+		if strings.HasSuffix(path, ".srs.source") && !keep[strings.TrimSuffix(path, ".source")] {
 			_ = os.Remove(path)
 		}
 		return nil
 	})
+	// Drop empty content-hash directories of older versions; keep the watched live directory.
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if dirs[i] != root && dirs[i] != filepath.Join(root, "live") {
+			_ = os.Remove(dirs[i])
+		}
+	}
 }
 func (m *Manager) coreAPI(method, path string, body any, timeout int) (Object, error) {
 	var reader io.Reader
@@ -721,15 +801,133 @@ func (m *Manager) checkNodes(ids []string) error {
 	return nil
 }
 func (m *Manager) probe(id string, g Group) {
+	delay, e := m.probeDelay(id, g)
+	m.recordProbe(id, g, delay, e)
+}
+
+// probeDelay only talks to the core API and is safe to run concurrently.
+func (m *Manager) probeDelay(id string, g Group) (int, error) {
 	o, e := m.coreAPI("GET", "/proxies/"+url.PathEscape("n-"+id)+"/delay?timeout="+fmt.Sprint(g.Timeout*1000)+"&url="+url.QueryEscape(g.TestURL), nil, g.Timeout+2)
-	delay := 0
-	if e == nil {
-		if n, ok := o["delay"].(float64); ok && n > 0 {
-			delay = int(n)
-		} else {
-			e = errors.New("нет результата")
+	if e != nil {
+		return 0, e
+	}
+	if n, ok := o["delay"].(float64); ok && n > 0 {
+		return int(n), nil
+	}
+	return 0, errors.New("нет результата")
+}
+
+// probeAll checks several servers in parallel; dead servers no longer delay the others.
+func (m *Manager) probeAll(ids []string, g Group) {
+	type result struct {
+		delay int
+		err   error
+	}
+	results := make([]result, len(ids))
+	limit := make(chan struct{}, probeParallelism)
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		limit <- struct{}{}
+		go func(i int, id string) {
+			defer wg.Done()
+			defer func() { <-limit }()
+			d, e := m.probeDelay(id, g)
+			results[i] = result{d, e}
+		}(i, id)
+	}
+	wg.Wait()
+	for i, id := range ids {
+		m.recordProbe(id, g, results[i].delay, results[i].err)
+	}
+}
+
+const probeParallelism = 4
+
+// A degraded group (no live server selected, or the selected server just failed)
+// is rechecked quickly so failover and recovery take seconds, not minutes.
+const degradedRecheck = 15
+
+func (m *Manager) checkDelay(g Group) int64 {
+	interval := int64(g.Interval)
+	selected := m.selections[g.ID]
+	degraded := selected == "" || selected == "unavailable" || selected == "direct"
+	if h := m.healthFor(g.ID, selected); h != nil && h.Failures > 0 {
+		degraded = true
+	}
+	if degraded && interval > degradedRecheck {
+		return degradedRecheck
+	}
+	return interval
+}
+
+// selectGroup pushes the best server into the core selector. force re-sends the
+// choice after a core restart, when every selector is back at its default.
+func (m *Manager) selectGroup(g Group, now int64, force bool) {
+	selected := m.choose(g, now)
+	tag := "n-" + selected
+	if g.Mode == "round_robin" && selected != "direct" && selected != "unavailable" {
+		selected = "pool-" + g.ID
+		tag = selected
+	}
+	if selected == "direct" || selected == "unavailable" {
+		tag = selected
+	}
+	previous := m.selections[g.ID]
+	if !force && selected == previous {
+		return
+	}
+	if _, e := m.coreAPI("PUT", "/proxies/"+url.PathEscape(groupTag(g.ID)), Object{"name": tag}, 3); e == nil {
+		m.selections[g.ID] = selected
+		if selected != previous {
+			m.switched[g.ID] = now
+			m.event("Группа «" + g.Name + "»: сервер переключён")
+			if h := m.healthFor(g.ID, previous); h != nil && !h.Up {
+				m.closeConnections("n-" + previous)
+			}
 		}
 	}
+}
+
+// closeConnections drops connections still bound to a failed server. Healthy
+// switches keep existing connections; only those on a dead server would hang.
+func (m *Manager) closeConnections(tag string) {
+	o, e := m.coreAPI("GET", "/connections", nil, 2)
+	if e != nil {
+		return
+	}
+	connections, _ := o["connections"].([]any)
+	for _, value := range connections {
+		c, _ := value.(map[string]any)
+		chains, _ := c["chains"].([]any)
+		for _, chain := range chains {
+			if name, _ := chain.(string); name == tag {
+				if id := str(c, "id"); id != "" {
+					_, _ = m.coreAPI("DELETE", "/connections/"+url.PathEscape(id), nil, 2)
+				}
+				break
+			}
+		}
+	}
+}
+
+// restoreSelections re-applies known-good servers right after the core starts,
+// instead of leaving traffic on the "unavailable" default until the next probe round.
+func (m *Manager) restoreSelections() {
+	now := time.Now().Unix()
+	groups := m.runtimeGroups()
+	known := map[string]bool{}
+	for _, g := range groups {
+		known[g.ID] = true
+		m.selectGroup(g, now, true)
+	}
+	for id := range m.selections {
+		if !known[id] {
+			delete(m.selections, id)
+		}
+	}
+}
+func (m *Manager) recordProbe(id string, g Group, delay int, e error) {
 	key := g.ID + "/" + id
 	h := m.groupHealth[key]
 	if h == nil {
@@ -804,8 +1002,11 @@ func (m *Manager) choose(g Group, now int64) string {
 		}
 	}
 	current := m.selections[g.ID]
+	// A server that has never been checked (fresh boot, new rule) is not known to be
+	// down: use it optimistically instead of blocking traffic until the first probes finish.
+	unchecked := func(id string) bool { return m.healthFor(g.ID, id) == nil }
 	if g.Mode == "manual" {
-		if contains(live, g.Selected) {
+		if contains(live, g.Selected) || unchecked(g.Selected) {
 			return g.Selected
 		}
 		if g.Failure == "direct" {
@@ -814,6 +1015,14 @@ func (m *Manager) choose(g Group, now int64) string {
 		return "unavailable"
 	}
 	if len(live) == 0 {
+		if contains(g.Nodes, current) && unchecked(current) {
+			return current
+		}
+		for _, id := range g.Nodes {
+			if unchecked(id) {
+				return id
+			}
+		}
 		if g.Failure == "direct" {
 			return "direct"
 		}
@@ -865,12 +1074,21 @@ func (m *Manager) tick() {
 	now := time.Now().Unix()
 	if m.process != nil {
 		select {
-		case <-m.exited:
+		case err := <-m.exited:
 			m.process = nil
 			m.exited = nil
-			m.event("Ядро завершилось; применяется политика отказа")
+			m.apiFailures = 0
+			m.saveCoreLog(err)
+			m.event("Ядро завершилось" + exitReason(err) + "; применяется политика отказа")
 			_ = m.network("crash", m.Settings)
-			if m.Settings.Failure == "direct" {
+			if m.Settings.Enabled && now-m.lastFastRestart >= 60 {
+				// Restart the exact configuration that was running: no downloads, no recompilation.
+				m.lastFastRestart = now
+				if m.restartConfig(filepath.Join(m.Run, "config.json")) == nil {
+					m.event("Ядро перезапущено с текущей конфигурацией")
+				}
+			}
+			if m.process == nil && m.Settings.Failure == "direct" {
 				_ = m.configureDNS(false)
 			}
 		default:
@@ -880,59 +1098,43 @@ func (m *Manager) tick() {
 		m.lastRetry = now
 		if e := m.apply(m.Settings); e != nil {
 			m.event(e.Error())
-			var good Object
-			if m.process == nil && loadJSON(filepath.Join(m.Root, "last-good.json"), &good) == nil {
-				if api, ok := good["experimental"].(map[string]any); ok {
-					if clash, ok := api["clash_api"].(map[string]any); ok {
-						clash["secret"] = m.secret
-					}
-				}
-				_ = m.network("guard", m.Settings)
-				if m.startCore(good) == nil {
-					_ = m.configureDNS(true)
-					m.event("Запущена последняя рабочая конфигурация")
-				}
-			}
+			m.startLastGood()
 		}
 	}
 	if m.process != nil {
 		for _, g := range m.runtimeGroups() {
-
 			if now < m.nextCheck[g.ID] {
 				continue
 			}
-			m.nextCheck[g.ID] = now + int64(g.Interval)
+			m.probeAll(g.Nodes, g)
+			fresh := []string{}
 			for _, id := range g.Nodes {
-				m.probe(id, g)
-				if h := m.health[id]; len(h.Samples) == 1 && h.Failures == 0 {
-					for i := 1; i < g.Recovery; i++ {
-						m.probe(id, g)
-					}
+				if h := m.healthFor(g.ID, id); h != nil && len(h.Samples) == 1 && h.Failures == 0 {
+					fresh = append(fresh, id)
 				}
 			}
-			m.nextCheck[g.ID] = time.Now().Unix() + int64(g.Interval)
-			selected := m.choose(g, now)
-			tag := "n-" + selected
-			if g.Mode == "round_robin" && selected != "direct" && selected != "unavailable" {
-				selected = "pool-" + g.ID
-				tag = selected
+			for i := 1; i < g.Recovery && len(fresh) > 0; i++ {
+				m.probeAll(fresh, g)
 			}
-			if selected == "direct" || selected == "unavailable" {
-				tag = selected
-			}
-			if selected != m.selections[g.ID] {
-				if _, e := m.coreAPI("PUT", "/proxies/"+url.PathEscape(groupTag(g.ID)), Object{"name": tag}, 3); e == nil {
-					m.selections[g.ID] = selected
-					m.switched[g.ID] = now
-					m.event("Группа «" + g.Name + "»: сервер переключён")
-				}
-			}
+			m.selectGroup(g, now, false)
+			m.nextCheck[g.ID] = time.Now().Unix() + m.checkDelay(g)
 		}
 	}
 	if m.process != nil {
 		if o, e := m.coreAPI("GET", "/connections", nil, 2); e == nil {
+			m.apiFailures = 0
 			m.traffic = Object{"upload": o["uploadTotal"], "download": o["downloadTotal"], "core_memory": o["memory"]}
 			m.connections = m.connectionRows(o)
+		} else if _, e = m.coreAPI("GET", "/version", nil, 3); e == nil {
+			m.apiFailures = 0
+		} else {
+			m.apiFailures++
+			if m.apiFailures >= coreHangTicks {
+				// The process is alive but does not answer: kill it so the crash path restarts it.
+				m.apiFailures = 0
+				m.event("Ядро не отвечает; принудительный перезапуск")
+				_ = m.process.Process.Kill()
+			}
 		}
 	}
 	due := false
@@ -951,22 +1153,68 @@ func (m *Manager) tick() {
 		os.Remove(filepath.Join(m.Run, "domains.zip"))
 		if e := m.apply(m.Settings); e != nil {
 			m.event(e.Error())
-			var good Object
-			if m.process == nil && loadJSON(filepath.Join(m.Root, "last-good.json"), &good) == nil {
-				if api, ok := good["experimental"].(map[string]any); ok {
-					if clash, ok := api["clash_api"].(map[string]any); ok {
-						clash["secret"] = m.secret
-					}
-				}
-				_ = m.network("guard", m.Settings)
-				if m.startCore(good) == nil {
-					_ = m.configureDNS(true)
-					m.event("Запущена последняя рабочая конфигурация")
-				}
-			}
+			m.startLastGood()
 		}
 	}
 	m.publish()
+}
+
+// About 30 seconds of a running but unresponsive core.
+const coreHangTicks = 6
+
+func exitReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	reason := err.Error()
+	if strings.Contains(reason, "killed") {
+		return " (" + reason + ", возможно, нехватка памяти)"
+	}
+	return " (" + reason + ")"
+}
+func (m *Manager) saveCoreLog(err error) {
+	data := []byte{}
+	if m.coreLog != nil {
+		data = m.coreLog.data()
+	}
+	if err != nil {
+		data = append(data, []byte("\nexit: "+err.Error()+"\n")...)
+	}
+	_ = atomicWrite(filepath.Join(m.Run, "core-error.log"), data, 0600)
+}
+
+// restartConfig starts a previously validated configuration with the current API secret.
+func (m *Manager) restartConfig(path string) error {
+	var config Object
+	if e := loadJSON(path, &config); e != nil {
+		return e
+	}
+	if e := configSafety(config); e != nil {
+		m.event("Сохранённая конфигурация не запущена: " + e.Error())
+		return e
+	}
+	if experimental, ok := config["experimental"].(map[string]any); ok {
+		if api, ok := experimental["clash_api"].(map[string]any); ok {
+			api["secret"] = m.secret
+		}
+	}
+	_ = m.network("guard", m.Settings)
+	if e := m.startCore(config); e != nil {
+		return e
+	}
+	_ = m.network("start", m.Settings)
+	_ = m.configureDNS(true)
+	m.nextCheck = map[string]int64{}
+	m.restoreSelections()
+	return nil
+}
+func (m *Manager) startLastGood() {
+	if m.process != nil {
+		return
+	}
+	if m.restartConfig(filepath.Join(m.Root, "last-good.json")) == nil {
+		m.event("Запущена последняя рабочая конфигурация")
+	}
 }
 func (m *Manager) Serve() error {
 	socket := filepath.Join(m.Run, "control.sock")
@@ -1010,17 +1258,8 @@ func (m *Manager) Serve() error {
 		m.op.Lock()
 		// Restore the validated configuration before downloading lists: dnsmasq may
 		// already use this core as its upstream after a restart or power loss.
-		var good Object
-		if m.ensureCore() == nil && loadJSON(filepath.Join(m.Root, "last-good.json"), &good) == nil {
-			if experimental, ok := good["experimental"].(map[string]any); ok {
-				if api, ok := experimental["clash_api"].(map[string]any); ok {
-					api["secret"] = m.secret
-				}
-			}
-			_ = m.network("guard", m.Settings)
-			if m.startCore(good) == nil {
-				_ = m.configureDNS(true)
-			}
+		if m.ensureCore() == nil {
+			_ = m.restartConfig(filepath.Join(m.Root, "last-good.json"))
 		}
 		m.publish()
 		m.op.Unlock()

@@ -1,6 +1,6 @@
 const fs=require('node:fs'),assert=require('node:assert/strict');
 class Element{constructor(tag,attrs,children){this.tag=tag;this.attrs=attrs||{};this.children=[];this.events={};this.style={};this.value=String(this.attrs.value??'');this.checked=!!this.attrs.checked;this.replaceChildren(children);if(tag==='select'){const c=this.children.find(c=>c?.attrs?.selected)||this.children[0];this.value=c?.attrs?.value||'';}}replaceChildren(...children){this.children=children.flat(Infinity).filter(c=>c!=null);}appendChild(c){this.children.push(c);return c;}setAttribute(k,v){this.attrs[k]=v;}addEventListener(k,v){this.events[k]=v;}querySelectorAll(s){let a=[];for(const c of this.children){if(c instanceof Element){if(s==='[data-mutation]'&&c.attrs['data-mutation'])a.push(c);a.push(...c.querySelectorAll(s));}}return a;}}
-const E=(t,a,c)=>new Element(t,a,c),declarations=[];
+const bareText=[];const E=(t,a,c)=>{if(c!=null&&!Array.isArray(c)&&!(c instanceof Element)&&typeof c!=='function')bareText.push([t,c]);return new Element(t,a,c);},declarations=[];
 const rpc={declare(spec){declarations.push(spec);return async()=>({});}},view={extend:o=>o},poll={add(){}},ui={addNotification(){},showModal(title,children){this.modal={title,children};},hideModal(){ui.modal=null;}};
 const page=new Function('view','rpc','poll','ui','E',fs.readFileSync('files/www/luci-static/resources/view/routerbox/main.js','utf8'))(view,rpc,poll,ui,E);
 const settings={enabled:false,interfaces:['br-lan'],ipv6:false,mtu:1400,failure:'block',final:'direct',storage:'flash',core_url:'',core_sha:'',core_size:0,rules_interval:24,dns_mode:'stable',dns_strategy:'prefer_ipv4',dns_cache:true,bootstrap:'1.1.1.1',subscriptions:[{id:'sub',name:'Altflow',enabled:true,url:'https://example.com/subscription',interval:24}],groups:[{id:'main',name:'Main',nodes:['a','b'],mode:'fastest',selected:'a',interval:300,timeout:5,tolerance:50,hold:300,failures:3,recovery:2,window:30,test_url:'https://example.com/',failure:'block'}],rules:[{name:'YouTube',enabled:true,categories:['youtube'],domains:[],ips:[],sources:[],macs:[],id:'youtube',target:'vpn',dns:'',nodes:[],mode:'stable'}],dns:[{id:'cf',name:'Cloudflare',address:'https://1.1.1.1/dns-query',detour:'direct'}]};
@@ -50,3 +50,12 @@ for(const [label,key] of [['DNS для прямого трафика','direct_dn
  control.value='cf';control.events.change();assert.equal(page.draft[key],'cf');
 }
 console.log('Independent direct and VPN DNS selectors: OK');
+
+// Remote strings (subscription names, sniffed hosts, errors) must never reach LuCI as
+// a bare child: LuCI would assign them through innerHTML.
+const payload='<img src=x onerror=alert(1)>';
+page.render({...state,nodes:state.nodes.map(n=>({...n,name:payload})),connections:[{host:payload,source:'192.168.1.2',network:'tcp',rule:payload,server:payload}],events:[payload],settings:{...settings,subscriptions:[{...settings.subscriptions[0],name:payload,error:payload,warning:payload,rejected:[{name:payload,reason:payload}]}]}});
+for(const tab of ['overview','subscriptions','servers','routing','dns','settings','updates','logs'])page.showTab(tab);
+page.subscriptionDialog(settings.subscriptions[0]);page.ruleDialog(settings.rules[0],0);
+assert.deepEqual(bareText,[],'bare string children reach LuCI innerHTML');
+console.log('No bare text children (XSS-safe rendering): OK');
