@@ -7,7 +7,9 @@
 var stateRPC = rpc.declare({object:'routerbox',method:'state',expect:{'':{}}});
 var calls={};
 ['save','subscription','refresh','catalogue','rules','updatecheck','check','start','stop'].forEach(function(method){calls[method]=rpc.declare({object:'routerbox',method:method,params:method==='save'||method==='subscription'?['data']:method==='refresh'?['id']:method==='check'?['ids']:[],expect:{'':{}}});});
-function dom(tag,attrs,children){var clean={};Object.keys(attrs||{}).forEach(function(k){if(attrs[k]!=null)clean[k]=attrs[k];});return E(tag,clean,Array.isArray(children)?children.filter(function(c){return c!=null;}):children==null?[]:children);}
+// LuCI E() assigns a bare string child through innerHTML. Always pass text inside an
+// array so it becomes a text node: names, hosts and errors come from subscriptions and LAN.
+function dom(tag,attrs,children){var clean={};Object.keys(attrs||{}).forEach(function(k){if(attrs[k]!=null)clean[k]=attrs[k];});return E(tag,clean,Array.isArray(children)?children.filter(function(c){return c!=null;}):children==null?[]:[children]);}
 function txt(v,fallback){return v==null||v===''||v==='null'?fallback||'—':String(v);}
 function arr(v){return Array.isArray(v)?v:[];}
 function clone(v){return JSON.parse(JSON.stringify(v));}

@@ -29,23 +29,27 @@ func (m *Manager) cachedRule(category string) string {
 	}
 	return ""
 }
+
+// prebuiltRule returns a verified rule-set file: the live one when the download is
+// unchanged or unavailable, otherwise a staged copy in RAM.
 func (m *Manager) prebuiltRule(category string) (string, error) {
+	live := m.liveRulePath(category)
 	data, err := m.fetch("https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/"+category+".srs", 2<<20)
 	if err != nil {
-		if cached := m.cachedRule(category); cached != "" {
+		cached := live
+		if !fileExists(cached) {
+			cached = m.cachedRule(category)
+		}
+		if cached != "" {
 			m.event("Список «" + category + "» недоступен; используется последняя рабочая копия")
 			return cached, nil
 		}
 		return "", err
 	}
-	dir := filepath.Join(m.Root, "rules", hashID(data))
-	path := filepath.Join(dir, categoryTag(category)+".srs")
-	if _, err = os.Stat(path); err == nil {
-		return path, nil
+	if fileEquals(live, data) {
+		return live, nil
 	}
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return "", err
-	}
+	path := m.stagingRulePath(category)
 	if err = atomicWrite(path, data, 0600); err != nil {
 		return "", err
 	}
