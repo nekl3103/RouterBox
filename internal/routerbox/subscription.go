@@ -100,3 +100,13 @@ func (m *Manager) addSubscription(data json.RawMessage) error {
 	}
 	return nil
 }
+
+// subscriptionHost is the only part of a subscription URL shown in LuCI: path and
+// query usually contain the access token.
+func subscriptionHost(address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}

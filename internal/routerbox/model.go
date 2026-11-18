@@ -17,7 +17,7 @@ import (
 
 type Object = map[string]any
 
-const Version = "0.3.3"
+const Version = "0.4.0"
 const CoreVersion = "1.14.2-lx.12-router.1"
 const MaxDownload = 8 << 20
 
@@ -47,6 +47,7 @@ type Subscription struct {
 	Error          string      `json:"error,omitempty"`
 	Rejected       []Rejection `json:"rejected,omitempty"`
 	HasURL         bool        `json:"has_url,omitempty"`
+	URLHost        string      `json:"url_host,omitempty"`
 }
 type Rejection struct {
 	Name   string `json:"name"`

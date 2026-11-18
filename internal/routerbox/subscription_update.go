@@ -195,6 +195,12 @@ func (m *Manager) refresh(id string) error {
 			continue
 		}
 		next = proposed
+		if risk := subscriptionRisks(*p, valid); risk != "" {
+			if p.Warning != "" {
+				p.Warning += " "
+			}
+			p.Warning += risk
+		}
 		if p.Name == "" || p.Name == "Подписка" {
 			p.Name = subscriptionTitle(headers, b, p.URL)
 		}
@@ -316,4 +322,22 @@ func remapSubscriptionSelections(old, next []Node, s *Settings) {
 		mapIDs(&g.Nodes)
 		mapSelected(&g.Selected)
 	}
+}
+
+// subscriptionRisks explains transport weaknesses without blocking working subscriptions.
+func subscriptionRisks(p Subscription, nodes []Node) string {
+	notes := []string{}
+	if strings.HasPrefix(strings.ToLower(p.URL), "http://") {
+		notes = append(notes, "Подписка загружается по HTTP без шифрования: список серверов могут подменить по пути. Используйте HTTPS-ссылку.")
+	}
+	insecure := 0
+	for _, n := range nodes {
+		if tls, ok := n.Config["tls"].(map[string]any); ok && tls["insecure"] == true {
+			insecure++
+		}
+	}
+	if insecure > 0 {
+		notes = append(notes, fmt.Sprintf("Серверов без проверки TLS-сертификата: %d. Соединение с ними можно перехватить; попросите провайдера выдать корректные сертификаты.", insecure))
+	}
+	return strings.Join(notes, " ")
 }

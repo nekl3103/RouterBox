@@ -16,7 +16,7 @@ RouterBox — клиент для OpenWrt с интерфейсом LuCI и яд
 | Архитектура APK | `mipsel_24kc` |
 | Проверенная прошивка | OpenWrt 25.12.5, LuCI |
 | Пакетный менеджер | APK |
-| Приложение | 0.3.3, пакет `0.3.3-r1` |
+| Приложение | 0.4.0, пакет `0.4.0-r1` |
 | Ядро | `1.14.2-lx.12-router.1`, пакет `1.14.2-r13` |
 
 Готовые пакеты предназначены для этой платформы. Старые прошивки с OPKG, другие архитектуры и другие модели этим комплектом не проверены. Должны быть доступны репозитории пакетов вашей установленной прошивки: модули ядра устанавливаются именно из них.
@@ -94,11 +94,11 @@ Xray JSON импортируется как набор независимых с
 
 Полная инструкция, включая настройку подписки и правил, находится в [docs/INSTALL.md](docs/INSTALL.md).
 
-1. Скачайте `routerbox-mt7621-0.3.3.tar.gz` из [Releases](https://github.com/nekl3103/RouterBox/releases/latest).
+1. Скачайте `routerbox-mt7621-0.4.0.tar.gz` из [Releases](https://github.com/nekl3103/RouterBox/releases/latest).
 2. Передайте архив с компьютера на роутер:
 
    ```sh
-   scp -O routerbox-mt7621-0.3.3.tar.gz root@192.168.1.1:/tmp/
+   scp -O routerbox-mt7621-0.4.0.tar.gz root@192.168.1.1:/tmp/
    ssh root@192.168.1.1
    ```
 
@@ -106,7 +106,7 @@ Xray JSON импортируется как набор независимых с
 
    ```sh
    cd /tmp
-   tar -xzf routerbox-mt7621-0.3.3.tar.gz
+   tar -xzf routerbox-mt7621-0.4.0.tar.gz
    cd routerbox-mt7621
    ./install.sh --check
    ```
@@ -231,7 +231,7 @@ Xray JSON импортируется как набор независимых с
 
 ```sh
 rm -rf /tmp/routerbox-mt7621
-rm -f /tmp/routerbox-mt7621-0.3.3.tar.gz
+rm -f /tmp/routerbox-mt7621-0.4.0.tar.gz
 ```
 
 Не удаляйте `/tmp/routerbox` при работающей службе.
@@ -281,8 +281,8 @@ cd RouterBox
 
 | Файл | Назначение |
 | --- | --- |
-| `routerbox-mt7621-0.3.3.tar.gz` | Установочный комплект с инструкцией, пакетами и ключом |
-| `luci-app-routerbox-0.3.3-r1.apk` | Контроллер и LuCI |
+| `routerbox-mt7621-0.4.0.tar.gz` | Установочный комплект с инструкцией, пакетами и ключом |
+| `luci-app-routerbox-0.4.0-r1.apk` | Контроллер и LuCI |
 | `routerbox-core-1.14.2-r13.apk` | Сжатое ядро |
 | `sing-box-1.14.2-lx.12-mt7621.gz` | Архив для загрузки ядра в RAM |
 | `manifest.json` | Версия, размеры, исходный commit и SHA256 ядра |
@@ -293,7 +293,7 @@ cd RouterBox
 
 Теги: `with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_xhttp,with_awg`. Доступны VLESS/REALITY/XHTTP, VMess, Trojan, Shadowsocks, Hysteria/Hysteria2, TUIC, AnyTLS, WireGuard/AmneziaWG и другие протоколы этой сборки. Tailscale, OpenVPN, OpenConnect и Naive исключены для уменьшения размера. Каждая импортированная запись проверяется ядром.
 
-APK подписываются RSA-ключом `build/routerbox-private.pem`; при отсутствии он генерируется. Закрытый ключ не входит в Git или установочный комплект. Публичный ключ включён в комплект, установщик добавляет его в `/etc/apk/keys`. `--allow-untrusted` не требуется. Для стабильной подписи сохраняйте приватный ключ между сборками.
+APK подписываются RSA-ключом `build/routerbox-private.pem`; при отсутствии он генерируется. Закрытый ключ не входит в Git или установочный комплект. Публичный ключ включён в комплект. Установщик кладёт его в `/etc/apk/keys` только на время установки и удаляет сразу после неё, чтобы apk не доверял этому ключу для других пакетов. `--allow-untrusted` не требуется. Для стабильной подписи сохраняйте приватный ключ между сборками.
 
 ### Проверки
 
@@ -325,8 +325,8 @@ Workflow [Build RouterBox](.github/workflows/build.yml) запускается �
 git add .
 git commit -m "Prepare RouterBox release"
 git push origin main
-git tag v0.3.3
-git push origin v0.3.3
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 Имя тега не меняет внутренние версии приложения и APK автоматически.

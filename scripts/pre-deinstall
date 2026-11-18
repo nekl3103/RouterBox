@@ -6,4 +6,6 @@ set -e
 /etc/init.d/routerbox disable
 uci -q delete firewall.routerbox || true
 uci commit firewall
+# Versions before 0.4.0 left the package key trusted system-wide.
+rm -f /etc/apk/keys/routerbox.pub
 exit 0
