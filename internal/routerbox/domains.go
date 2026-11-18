@@ -2,6 +2,7 @@ package routerbox
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -311,22 +312,35 @@ func (m *Manager) ensureDomainDB() error {
 	m.domains = db
 	return writeJSON(filepath.Join(m.Root, "catalogue.json"), Object{"revision": db.Revision, "categories": db.Catalogue()})
 }
+
+// Rule-set files live at a stable path per category. The core watches that directory
+// and reloads a set when its file is replaced, so a daily list update no longer changes
+// the config and no longer restarts the core. New files are built and verified in RAM
+// first; only changed files are written to flash, by atomic rename.
+func (m *Manager) liveRulePath(category string) string {
+	return filepath.Join(m.Root, "rules", "live", categoryTag(category)+".srs")
+}
+func (m *Manager) stagingRulePath(category string) string {
+	return filepath.Join(m.Run, "rules-staging", categoryTag(category)+".srs")
+}
+func fileEquals(path string, data []byte) bool {
+	old, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(old, data)
+}
+
+// compileRules returns live rule-set paths. m.rulesSwapped reports how many live files
+// were replaced, i.e. how many sets a running core reloaded in place.
 func (m *Manager) compileRules(s Settings) (map[string]string, error) {
-	paths := map[string]string{}
-	created := []string{}
-	complete := false
+	m.rulesSwapped = 0
+	staged := map[string]string{}
+	sources := map[string]string{}
 	defer func() {
 		m.domains = nil
-		if !complete {
-			for _, path := range created {
-				_ = os.Remove(path)
-				_ = os.Remove(filepath.Dir(path))
-			}
-		}
+		_ = os.RemoveAll(filepath.Join(m.Run, "rules-staging"))
 	}()
 	categories := selectedCategories(s)
 	if len(categories) == 0 {
-		return paths, nil
+		return map[string]string{}, nil
 	}
 	for _, c := range categories {
 		if !strings.HasPrefix(c, "allow-") && !prebuiltCategory(c) {
@@ -338,54 +352,43 @@ func (m *Manager) compileRules(s Settings) (map[string]string, error) {
 	}
 	var total int64
 	for _, c := range categories {
+		live := m.liveRulePath(c)
+		var path string
 		if prebuiltCategory(c) {
-			dest, err := m.prebuiltRule(c)
-			if err != nil {
+			var err error
+			if path, err = m.prebuiltRule(c); err != nil {
 				return nil, err
 			}
-			info, err := os.Stat(dest)
-			if err != nil {
-				return nil, err
-			}
-			total += info.Size()
-			if total > 8<<20 {
-				return nil, errors.New("выбранные правила превышают 8 МБ")
-			}
-			paths[c] = dest
-			continue
-		}
-		var o Object
-		var e error
-		if strings.HasPrefix(c, "allow-") {
-			o, e = m.resolveService(c)
 		} else {
-			o, e = m.domains.Resolve(c)
-		}
-		if e != nil {
-			return nil, e
-		}
-		data, _ := json.Marshal(Object{"version": 3, "rules": []Object{o}})
-		dir := filepath.Join(m.Root, "rules", hashID(data))
-		if e := os.MkdirAll(dir, 0700); e != nil {
-			return nil, e
-		}
-		name := categoryTag(c)
-		source := filepath.Join(m.Run, name+".json")
-		dest := filepath.Join(dir, name+".srs")
-		if _, e = os.Stat(dest); e != nil {
-			created = append(created, dest)
-			if e = atomicWrite(source, data, 0600); e != nil {
+			var o Object
+			var e error
+			if strings.HasPrefix(c, "allow-") {
+				o, e = m.resolveService(c)
+			} else {
+				o, e = m.domains.Resolve(c)
+			}
+			if e != nil {
 				return nil, e
 			}
-			e = m.command(45, m.corePath(), "rule-set", "compile", "--output", dest, source)
-			os.Remove(source)
-			if e != nil {
-				os.Remove(dest)
-				return nil, errors.New("не удалось скомпилировать список доменов")
+			data, _ := json.Marshal(Object{"version": 3, "rules": []Object{o}})
+			source := hashID(data)
+			if marker, err := os.ReadFile(live + ".source"); err == nil && string(marker) == source && fileExists(live) {
+				path = live
+			} else {
+				path = m.stagingRulePath(c)
+				input := strings.TrimSuffix(path, ".srs") + ".json"
+				if e = atomicWrite(input, data, 0600); e != nil {
+					return nil, e
+				}
+				e = m.command(45, m.corePath(), "rule-set", "compile", "--output", path, input)
+				os.Remove(input)
+				if e != nil {
+					return nil, errors.New("не удалось скомпилировать список доменов")
+				}
+				sources[c] = source
 			}
-			os.Chmod(dest, 0600)
 		}
-		info, e := os.Stat(dest)
+		info, e := os.Stat(path)
 		if e != nil {
 			return nil, e
 		}
@@ -393,9 +396,32 @@ func (m *Manager) compileRules(s Settings) (map[string]string, error) {
 		if total > 8<<20 {
 			return nil, errors.New("выбранные правила превышают 8 МБ")
 		}
-		paths[c] = dest
+		staged[c] = path
 	}
-	complete = true
-	m.domains = nil
+	// Every set is valid; only now touch the live files the core is watching.
+	paths := map[string]string{}
+	for _, c := range categories {
+		live := m.liveRulePath(c)
+		if staged[c] != live {
+			data, e := os.ReadFile(staged[c])
+			if e != nil {
+				return nil, e
+			}
+			if !fileEquals(live, data) {
+				if e = atomicWrite(live, data, 0600); e != nil {
+					return nil, e
+				}
+				m.rulesSwapped++
+			}
+		}
+		if source := sources[c]; source != "" {
+			_ = atomicWrite(live+".source", []byte(source), 0600)
+		}
+		paths[c] = live
+	}
 	return paths, nil
+}
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

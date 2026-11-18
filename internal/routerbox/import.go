@@ -32,22 +32,20 @@ func number(s string) (int, error) {
 func makeNode(o Object, name, sub string, endpoint bool) (Node, error) {
 	typ := str(o, "type")
 	switch typ {
-	case "vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "tuic", "anytls", "socks", "http", "ssh", "shadowtls", "naive", "snell", "masque", "wireguard", "tailscale", "openvpn", "openconnect":
+	case "vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "tuic", "anytls", "socks", "http", "ssh", "shadowtls", "naive", "snell", "masque", "wireguard", "openvpn", "openconnect":
 	default:
 		return Node{}, errors.New("протокол не поддерживается импортом")
 	}
 	o = copyObject(o)
-	if localFileReference(o) {
-		return Node{}, errors.New("подписка не может ссылаться на локальные файлы роутера")
-	}
 	delete(o, "tag")
 	if str(o, "detour") != "" {
 		return Node{}, errors.New("сервер зависит от detour; вложенную цепочку нельзя импортировать отдельно")
 	}
 	delete(o, "detour")
-	delete(o, "bind_interface")
-	delete(o, "routing_mark")
-	delete(o, "domain_resolver")
+	stripHostOptions(o, endpoint)
+	if e := nodeSafety(o, endpoint); e != nil {
+		return Node{}, e
+	}
 	if !endpoint {
 		if str(o, "server") == "" {
 			return Node{}, errors.New("не задан адрес сервера")
@@ -517,29 +515,126 @@ func clashNode(c Object) (Object, error) {
 	return o, nil
 }
 
-func localFileReference(value any) bool {
+// Options that bind a server to the router's own network stack. A subscription only
+// describes a remote server, so these are removed instead of trusted.
+var hostDialOptions = []string{"bind_interface", "inet4_bind_address", "inet6_bind_address", "bind_address_no_port", "protect_path", "routing_mark", "reuse_addr", "netns", "network_strategy", "network_type", "fallback_network_type", "domain_resolver"}
+
+// Endpoint options that create system interfaces or listen on router ports.
+var hostEndpointOptions = []string{"system", "name", "listen_port", "dtls_local_port", "system_interface", "system_interface_name", "system_interface_mtu"}
+
+func stripHostOptions(o Object, endpoint bool) {
+	for _, k := range hostDialOptions {
+		delete(o, k)
+	}
+	if endpoint {
+		for _, k := range hostEndpointOptions {
+			delete(o, k)
+		}
+	}
+}
+
+// Host-check hooks of OpenConnect run an external program (wrapper_path) or a check
+// script on the router; they are never accepted from a subscription.
+var hostScriptOptions = map[string]bool{"csd": true, "hip": true, "tncc": true, "fortinet_host_check": true}
+
+// nodeSafety rejects anything that reads router files, runs programs or reaches the
+// router's own network. It is checked at import and again before a config is started,
+// so servers saved by older versions cannot bypass it.
+func nodeSafety(o Object, endpoint bool) error {
+	switch str(o, "type") {
+	case "tailscale":
+		return errors.New("Tailscale из подписки не поддерживается: он даёт удалённый доступ к сети роутера")
+	}
+	for _, k := range hostDialOptions {
+		if k == "domain_resolver" {
+			continue
+		}
+		if present(o[k]) {
+			return errors.New("сервер задаёт сетевые параметры самого роутера")
+		}
+	}
+	if endpoint {
+		for _, k := range hostEndpointOptions {
+			if present(o[k]) {
+				return errors.New("сервер создаёт системный интерфейс или открывает порт на роутере")
+			}
+		}
+	}
+	return unsafeReference(o)
+}
+func present(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case float64:
+		return x != 0
+	case int:
+		return x != 0
+	case []any:
+		return len(x) > 0
+	case map[string]any:
+		return len(x) > 0
+	}
+	return true
+}
+func unsafeReference(value any) error {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, item := range v {
-			switch key {
-			case "certificate_path", "certificate_directory_path", "private_key_path", "public_key_path", "key_path", "client_key_path", "client_certificate_path", "known_hosts_path", "password_file", "plugin_path":
-				if text, ok := item.(string); ok && text != "" {
-					return true
-				}
-				if list, ok := item.([]any); ok && len(list) > 0 {
-					return true
-				}
+			if hostScriptOptions[key] && present(item) {
+				return errors.New("подписка не может запускать программы проверки хоста на роутере")
 			}
-			if localFileReference(item) {
-				return true
+			if localFileKey(key) && present(item) {
+				return errors.New("подписка не может ссылаться на локальные файлы роутера")
+			}
+			if e := unsafeReference(item); e != nil {
+				return e
 			}
 		}
 	case []any:
 		for _, item := range v {
-			if localFileReference(item) {
-				return true
+			if e := unsafeReference(item); e != nil {
+				return e
 			}
 		}
 	}
-	return false
+	return nil
+}
+
+// Any *_path / *_file / *_directory option names a file on the router. Transport
+// fields named plain "path" (WebSocket, HTTP) are URL paths and stay allowed.
+func localFileKey(key string) bool {
+	if key == "tcp_multi_path" {
+		return false
+	}
+	for _, suffix := range []string{"_path", "_file", "_directory", "_dir"} {
+		if strings.HasSuffix(key, suffix) {
+			return true
+		}
+	}
+	return key == "directory" || key == "password_file" || key == "hostcheck"
+}
+
+// configSafety checks servers inside a full core config, e.g. last-good.json written
+// by an older version, before it is started.
+func configSafety(config Object) error {
+	for _, section := range []string{"outbounds", "endpoints"} {
+		items, _ := config[section].([]any)
+		for _, raw := range items {
+			o, _ := raw.(map[string]any)
+			if !strings.HasPrefix(str(o, "tag"), "n-") {
+				continue
+			}
+			copyOf := copyObject(o)
+			delete(copyOf, "domain_resolver")
+			if e := nodeSafety(copyOf, section == "endpoints"); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
 }

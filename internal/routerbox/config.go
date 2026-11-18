@@ -54,6 +54,12 @@ func Generate(s Settings, nodes []Node, paths map[string]string, run, secret str
 			continue
 		}
 		o := copyObject(n.Config)
+		// Servers saved by older versions are re-checked: never start one that runs
+		// programs, reads router files or binds to the router's own interfaces.
+		stripHostOptions(o, n.Endpoint)
+		if e := nodeSafety(o, n.Endpoint); e != nil {
+			return nil, fmt.Errorf("сервер «%s» отклонён: %s; удалите его или обновите подписку", n.Name, e.Error())
+		}
 		o["tag"] = "n-" + n.ID
 		if n.Endpoint {
 			endpoints = append(endpoints, o)
